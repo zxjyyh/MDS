@@ -1,0 +1,57 @@
+# 内业管理系统 — NAS 部署（拉取云端已构建镜像）
+#
+# 适用于绿联 UGOS Pro / 飞牛 fnOS / 群晖等 NAS。
+# 镜像由 GitHub Actions 在云端构建后推送到 GHCR，NAS 只负责拉取运行，
+# 不在本地跑 npm ci / vite build / go build（低配 NAS 跑这套构建极易 OOM）。
+#
+# 部署步骤：
+#   1. 在 NAS 上创建目录，例如 /volume1/docker/mds，并进入
+#   2. mkdir -p data uploads logs
+#   3. 上传本文件，并新建 .env（内容参考仓库里的 .env.example）
+#   4. 在 NAS 的 SSH 终端执行 id -u 和 id -g，把结果填进 .env 的 PUID / PGID
+#   5. docker compose -f docker-compose.nas.yml pull
+#      docker compose -f docker-compose.nas.yml up -d
+#   6. 浏览器访问 http://<NAS内网IP>:13000
+#
+# 若镜像仓库是 Private，需要先登录：
+#   echo <GitHub PAT> | docker login ghcr.io -u <GitHub用户名> --password-stdin
+
+services:
+  mds:
+    image: ${IMAGE_NAME:-ghcr.io/zxjyyh/mds:latest}
+    container_name: ${CONTAINER_NAME:-mds}
+    pull_policy: always
+
+    ports:
+      - "${HOST_PORT:-13000}:3000"
+
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    restart: unless-stopped

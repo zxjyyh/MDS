@@ -1,0 +1,30 @@
+# 依赖（构建阶段会重新安装，无需进入上下文）
+**/node_modules
+
+# 版本控制 / 编辑器 / 工具目录
+**/.git
+**/.workbuddy
+**/.idea
+**/.vscode
+
+# 环境变量（含明文 JWT 密钥，切勿进入构建上下文）
+**/.env
+**/.env.*
+!**/.env.example
+
+# 日志、数据库与上传文件
+**/*.log
+**/data
+**/uploads
+**/logs
+
+# 已编译产物 / 旧打包
+**/server.exe
+**/server_check.exe
+**/dist
+testrun
+internal-mgmt-portable
+
+# 杂项（非构建必需）
+docker-compose.yml
+README.md

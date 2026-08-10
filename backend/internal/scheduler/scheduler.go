@@ -1,0 +1,61 @@
+package scheduler
+
+import (
+	"os"
+	"strings"
+	"sync"
+
+	"github.com/zxjyyh/mds/internal/service"
+
+	"github.com/robfig/cron/v3"
+	"go.uber.org/zap"
+)
+
+var (
+	mu     sync.Mutex
+	runner *cron.Cron
+)
+
+// defaultSpec 每天 08:30 跑一次到期检查，可用 REMINDER_CRON 覆盖。
+const defaultSpec = "30 8 * * *"
+
+func Start(svc *service.ReminderService, log *zap.Logger) {
+	mu.Lock()
+	defer mu.Unlock()
+	if runner != nil {
+		return
+	}
+
+	spec := strings.TrimSpace(os.Getenv("REMINDER_CRON"))
+	if spec == "" {
+		spec = defaultSpec
+	}
+
+	// cron.New() 默认使用 time.Local；容器内由 TZ 环境变量决定，
+	// 因此 compose 里必须设置 TZ，否则提醒会在 UTC 08:30（北京时间 16:30）触发。
+	c := cron.New()
+	if _, err := c.AddFunc(spec, func() {
+		log.Info("Running scheduled expiry check")
+		if err := svc.RunExpiryCheck(); err != nil {
+			log.Error("Expiry check failed", zap.Error(err))
+		}
+	}); err != nil {
+		log.Error("Failed to schedule cron", zap.String("spec", spec), zap.Error(err))
+		return
+	}
+
+	c.Start()
+	runner = c
+	log.Info("Scheduler started", zap.String("spec", spec))
+}
+
+// Stop 等待正在执行的任务结束后停止调度器，供优雅关闭调用。
+func Stop() {
+	mu.Lock()
+	defer mu.Unlock()
+	if runner == nil {
+		return
+	}
+	<-runner.Stop().Done()
+	runner = nil
+}

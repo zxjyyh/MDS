@@ -1,0 +1,38 @@
+# 统一换行符处理。
+# 这个文件必须先于 docker-entrypoint.sh 入库：
+# Windows 上 Git 默认 core.autocrlf=true，shell 脚本被转成 CRLF 后
+# 在容器里会报 `/bin/sh^M: bad interpreter: no such file or directory`，
+# 而且报错信息完全看不出是换行符的问题。
+
+* text=auto eol=lf
+
+# 必须保持 LF（容器 / Linux 侧执行）
+*.sh              text eol=lf
+Dockerfile        text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Windows 侧执行，必须保持 CRLF
+*.bat             text eol=crlf
+*.cmd             text eol=crlf
+*.ps1             text eol=crlf
+
+# 二进制文件不做任何转换
+*.png             binary
+*.jpg             binary
+*.jpeg            binary
+*.gif             binary
+*.webp            binary
+*.ico             binary
+*.pdf             binary
+*.woff            binary
+*.woff2           binary
+*.ttf             binary
+*.db              binary
+*.zip             binary
+*.exe             binary
+
+# GitHub 语言统计：忽略构建产物
+frontend/dist/**  linguist-generated=true
+backend/web/dist/** linguist-generated=true

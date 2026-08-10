@@ -1,0 +1,63 @@
+# 内业管理系统 — 本地构建部署
+#
+# 用法：
+#   1. cp .env.example .env  然后按注释填写（至少填两个 JWT 密钥）
+#   2. mkdir -p data uploads logs
+#   3. docker compose up -d --build
+#
+# 在 NAS 上部署请优先使用 docker-compose.nas.yml：
+# 它直接拉取云端已构建好的镜像，不需要在 NAS 上跑 npm ci + vite build + go build
+# （这套构建峰值内存约 2GB，低配 NAS 极易 OOM，表现为构建卡死或容器被杀）。
+
+services:
+  mds:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        # 国内网络可解开下面两行加速构建
+        # GOPROXY: https://goproxy.cn,direct
+        # NPM_REGISTRY: https://registry.npmmirror.com
+        APP_VERSION: ${APP_VERSION:-local}
+    image: ${IMAGE_NAME:-mds:local}
+    container_name: ${CONTAINER_NAME:-mds}
+
+    ports:
+      # 宿主机端口可用 HOST_PORT 覆盖，避免和 NAS 上其它服务撞port
+      - "${HOST_PORT:-13000}:3000"
+
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+
+    # 其余配置（JWT 密钥、SMTP、CORS 等）全部来自 .env
+    env_file:
+      - .env
+
+    environment:
+      # 时区必须设置：定时提醒按本地时间 08:30 触发，
+      # 不设置的话容器是 UTC，实际会在北京时间 16:30 才发提醒。
+      TZ: ${TZ:-Asia/Shanghai}
+      # 以宿主机用户身份写文件，避免 NAS 上生成一堆 root 属主、
+      # 在文件管理器里删不掉的文件。在 NAS 的 SSH 里执行 id -u / id -g 获取。
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    restart: unless-stopped

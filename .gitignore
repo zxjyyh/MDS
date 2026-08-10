@@ -1,0 +1,65 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 构建产物 =====
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# vite.config.ts 的编译产物（Vite 会优先读 .js，保留会导致改 .ts 不生效）
+frontend/vite.config.js
+frontend/vite.config.d.ts
+# unplugin 自动生成的类型声明
+frontend/auto-imports.d.ts
+frontend/components.d.ts
+
+# ===== 二进制 =====
+*.exe
+# 必须带前导斜杠锚定仓库根。写成裸 `server` 会匹配任意层级的同名目录，
+# 把 backend/cmd/server/ 整个吞掉，导致 clone 下来的代码无法编译。
+/backend/server
+/server
+*.zip
+
+# ===== 密钥与配置 =====
+.env
+.env.*
+!.env.example
+# 运行时自动生成的 JWT 密钥文件（位于数据库同级目录）
+.secrets.env
+**/.secrets.env
+# 例外：backend/.env.example 是安全模板（无密钥），允许入库供本地 go run 使用
+!backend/.env.example
+
+# ===== 运行时数据 =====
+# 说明：这里用 `dir/*` 而不是 `dir/`。
+# 若整个目录被排除，Git 不会遍历其内容，下面的 .gitkeep 例外将失效。
+data/*
+uploads/*
+logs/*
+!data/.gitkeep
+!uploads/.gitkeep
+!logs/.gitkeep
+
+# 其他层级的运行时目录整体排除（关键：backend/uploads 存放真实业务文件）
+backend/data/
+backend/uploads/
+backend/logs/
+# 本地 Windows 构建时把前端产物复制到此目录，属构建产物不应入库
+/backend/web/dist/
+
+# 兜底：任何位置的数据库和日志文件
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== 工具目录 =====
+.workbuddy/

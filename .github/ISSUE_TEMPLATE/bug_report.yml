@@ -1,0 +1,61 @@
+name: 缺陷报告
+description: 报告一个可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供可复现信息，便于我们定位。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象描述
+      description: 发生了什么？与预期有何不同？
+      placeholder: 清晰、简洁地描述问题
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何稳定复现？
+      placeholder: |
+        1. 进入 '...'
+        2. 点击 '...'
+        3. 看到错误
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 镜像 tag
+      placeholder: v1.0.0 / ghcr.io/zxjyyh/mds:latest
+    validations:
+      required: false
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose（本地构建）
+        - Docker Compose（NAS 拉取镜像）
+        - Windows 独立运行
+        - 源码开发模式
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 后端/容器日志（`docker compose logs mds`），请脱敏后粘贴。
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 安全确认
+      options:
+        - label: 我已确认日志中不含密钥、口令、内网地址等敏感信息
+          required: true
