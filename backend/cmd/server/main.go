@@ -81,6 +81,13 @@ func main() {
 		log.Info("已规范化历史时间戳", zap.Int("rows", n))
 	}
 
+	// 历史文件存储路径自愈（兼容 Windows 绝对路径等，幂等）
+	if n, err := service.NormalizeFilePaths(db, cfg.UploadDir); err != nil {
+		log.Warn("文件路径规范化失败", zap.Error(err))
+	} else if n > 0 {
+		log.Info("已修正历史文件存储路径", zap.Int("rows", n))
+	}
+
 	// Seed
 	if err := database.Seed(db); err != nil {
 		log.Warn("种子数据初始化失败", zap.Error(err))

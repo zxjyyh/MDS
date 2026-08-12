@@ -234,13 +234,100 @@ func (s *FileService) GetByID(id int) (*models.UploadedFile, error) {
 // 注意返回的是**存储扩展名**而不是数据库里的 mime_type：
 // 老版本会把用户上传时声明的 Content-Type 直接存进 mime_type 列，
 // 那些历史脏数据不可信，一律以服务端生成的 stored_name 为准。
+//
+// 落盘路径经过 resolveStoragePath 兜底：旧数据（如 Windows 上跑出来的）
+// 可能把 Windows 绝对路径或不同子目录结构存进了 storage_path 列，
+// 在 Linux 容器里直接打开会失败导致图片裂开，这里自动重定位。
 func (s *FileService) GetFilePath(id int) (path, ext, name string, err error) {
 	var f models.UploadedFile
 	err = s.DB.Get(&f, "SELECT storage_path, stored_name, original_name FROM uploaded_files WHERE id=?", id)
 	if err != nil {
 		return "", "", "", err
 	}
-	return f.StoragePath, strings.ToLower(filepath.Ext(f.StoredName)), f.OriginalName, nil
+	return s.resolveStoragePath(f.StoragePath, f.StoredName), strings.ToLower(filepath.Ext(f.StoredName)), f.OriginalName, nil
+}
+
+// resolveStoragePath 在磁盘上定位实际文件，兼容历史数据中可能写入的
+// Windows 绝对路径（如 E:\...\uploads\...）或不同子目录结构。
+// 兜底顺序：
+//  1. storage_path 本身存在 → 直接用（新上传文件走这条快速路径）
+//  2. 去掉盘符 / 绝对前缀 / uploads 前缀后拼回 UploadDir 再试
+//  3. 在 UploadDir 内递归按 stored_name（基准文件名，全局唯一）查找
+func (s *FileService) resolveStoragePath(storagePath, storedName string) string {
+	if storagePath != "" {
+		if _, err := os.Stat(storagePath); err == nil {
+			return storagePath
+		}
+	}
+	// 去掉 Windows 盘符（C:）与各类前缀，拼回 UploadDir 再试一次
+	rel := storagePath
+	if len(rel) >= 2 && rel[1] == ':' {
+		rel = rel[2:]
+	}
+	rel = strings.TrimPrefix(rel, string(os.PathSeparator))
+	rel = strings.TrimPrefix(rel, "uploads"+string(os.PathSeparator))
+	rel = strings.TrimPrefix(rel, "uploads")
+	rel = strings.TrimPrefix(rel, string(os.PathSeparator))
+	if rel != "" {
+		if cand := filepath.Join(s.UploadDir, rel); fileExists(cand) {
+			return cand
+		}
+	}
+	// 最后手段：在 UploadDir 内递归按基准文件名查找
+	if storedName != "" {
+		if found, ok := s.findByName(storedName); ok {
+			return found
+		}
+	}
+	return storagePath
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
+}
+
+// findByName 在 UploadDir 内递归查找名为 name 的文件（stored_name 全局唯一）。
+func (s *FileService) findByName(name string) (string, bool) {
+	found := ""
+	_ = filepath.WalkDir(s.UploadDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && d.Name() == name {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found, found != ""
+}
+
+// NormalizeFilePaths 启动时一次性把 uploaded_files 表里可能错误的 storage_path
+// （例如历史 Windows 绝对路径、或被改过的子目录结构）改写为当前能定位到的真实路径，
+// 避免后续每次读图都走递归查找。幂等：文件确实不存在时不会误改。
+func NormalizeFilePaths(db *sqlx.DB, uploadDir string) (int, error) {
+	svc := &FileService{DB: db, UploadDir: uploadDir}
+	type frow struct {
+		ID          int    `db:"id"`
+		StoragePath string `db:"storage_path"`
+		StoredName  string `db:"stored_name"`
+	}
+	var rows []frow
+	if err := db.Select(&rows, "SELECT id, storage_path, stored_name FROM uploaded_files"); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows {
+		resolved := svc.resolveStoragePath(r.StoragePath, r.StoredName)
+		if resolved != r.StoragePath {
+			if _, err := db.Exec("UPDATE uploaded_files SET storage_path=? WHERE id=?", resolved, r.ID); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
 }
 
 // CanAccess 判断某个登录用户是否有权读取该文件。
@@ -274,7 +361,7 @@ func (s *FileService) Delete(id int) error {
 	if err := s.DB.Get(&f, "SELECT * FROM uploaded_files WHERE id=?", id); err != nil {
 		return err
 	}
-	os.Remove(f.StoragePath)
+	_ = os.Remove(s.resolveStoragePath(f.StoragePath, f.StoredName))
 	_, err := s.DB.Exec("DELETE FROM uploaded_files WHERE id=?", id)
 	return err
 }

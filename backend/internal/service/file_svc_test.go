@@ -2,6 +2,8 @@ package service
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -140,5 +142,47 @@ func TestSniffAllowedCoversWhitelist(t *testing.T) {
 		if _, ok := allowedUploadTypes[ext]; !ok {
 			t.Errorf("%s 有嗅探规则，却不在上传白名单里（多余配置）", ext)
 		}
+	}
+}
+
+// TestResolveStoragePath 验证历史数据兼容：旧版在 Windows 上跑出来的
+// 绝对路径（E:\...\uploads\...）以及不同的子目录结构，都能在 Linux 容器里
+// 重新定位到真实文件，避免图片裂开。
+func TestResolveStoragePath(t *testing.T) {
+	dir := t.TempDir()
+	// 真实文件放在 YYYY/MM 子目录下（当前落盘结构）
+	realDir := filepath.Join(dir, "2026", "08")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stored := "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg"
+	realPath := filepath.Join(realDir, stored)
+	if err := os.WriteFile(realPath, []byte("fake-image-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &FileService{UploadDir: dir}
+
+	// 1. 当前相对路径直接命中
+	if got := svc.resolveStoragePath(filepath.Join("uploads", "2026", "08", stored), stored); got != realPath {
+		t.Errorf("相对路径未命中: got=%q want=%q", got, realPath)
+	}
+
+	// 2. Windows 绝对路径（C: 盘符 + 与当前 UploadDir 完全无关的前缀）
+	winPath := `E:\workbuddy_project\MDS\backend\uploads\2026\08\` + stored
+	if got := svc.resolveStoragePath(winPath, stored); got != realPath {
+		t.Errorf("Windows 绝对路径未重定位: got=%q want=%q", got, realPath)
+	}
+
+	// 3. 子目录结构不一致（旧数据存成 uploads/uuid.jpg 扁平结构，但文件实际在 YYYY/MM 下）
+	flatWrong := filepath.Join("uploads", stored)
+	if got := svc.resolveStoragePath(flatWrong, stored); got != realPath {
+		t.Errorf("扁平路径未递归找到: got=%q want=%q", got, realPath)
+	}
+
+	// 4. 文件确实不存在时，原样返回（不误改）
+	missing := filepath.Join("uploads", "2026", "08", "ghost.jpg")
+	if got := svc.resolveStoragePath(missing, "ghost.jpg"); got != missing {
+		t.Errorf("缺失文件不应被改写: got=%q want=%q", got, missing)
 	}
 }
