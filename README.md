@@ -41,12 +41,13 @@
 ## 快速开始（Docker Compose）
 
 ```bash
-cp .env.example .env      # 按需修改端口、时区、PUID/PGID
 mkdir -p data uploads logs
 docker compose up -d
 docker compose logs -f    # 首次启动请在这里查看 admin 的随机初始密码
 # 访问 http://<主机IP>:13000
 ```
+> 无需 `.env` 文件：端口、时区、PUID/PGID 等都有默认值，直接 `up -d` 即可。
+> 想覆盖默认值（如固定 JWT 密钥、改端口）时，复制 `.env.example` 为 `.env` 再改，或直接改 `environment:` 里的默认值。
 
 NAS（绿联 / 飞牛 / 群晖）请改用 `docker-compose.nas.yml`，详见 [docs/overview.md](docs/overview.md) 与 `docker-compose.nas.yml` 文件顶部注释。
 
@@ -66,7 +67,7 @@ cd backend && go run ./cmd/server
 
 ## 环境变量
 
-复制 `.env.example` 为 `.env` 后修改。**`.env` 不会被提交到仓库。**
+**`.env` 是可选的**：所有变量在 compose 的 `environment:` 里都有默认值，直接 `docker compose up -d` 就能跑；想覆盖时才复制 `.env.example` 为 `.env` 再改。`.env` 不会被提交到仓库。
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|

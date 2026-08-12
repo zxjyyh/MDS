@@ -1,9 +1,8 @@
 # 内业管理系统 — 本地构建部署
 #
-# 用法：
-#   1. cp .env.example .env  然后按注释填写（至少填两个 JWT 密钥）
-#   2. mkdir -p data uploads logs
-#   3. docker compose up -d --build
+# 用法（【无需 .env 文件】，所有配置见下方 environment 默认值）：
+#   1. mkdir -p data uploads logs
+#   2. docker compose up -d --build
 #
 # 在 NAS 上部署请优先使用 docker-compose.nas.yml：
 # 它直接拉取云端已构建好的镜像，不需要在 NAS 上跑 npm ci + vite build + go build
@@ -31,18 +30,24 @@ services:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
 
-    # 其余配置（JWT 密钥、SMTP、CORS 等）全部来自 .env
-    env_file:
-      - .env
-
     environment:
       # 时区必须设置：定时提醒按本地时间 08:30 触发，
       # 不设置的话容器是 UTC，实际会在北京时间 16:30 才发提醒。
       TZ: ${TZ:-Asia/Shanghai}
-      # 以宿主机用户身份写文件，避免 NAS 上生成一堆 root 属主、
-      # 在文件管理器里删不掉的文件。在 NAS 的 SSH 里执行 id -u / id -g 获取。
+      # 以宿主机用户身份写文件。1000 是多数 Linux 默认用户；
+      # 在 NAS 上若遇到 permission denied，把它改成 0:0（root）即可，
+      # 或改用 docker-compose.nas.yml（默认就是 0:0）。
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      # 可选：显式固定 JWT 密钥。留空则自动生成并持久化到 data/.secrets.env。
+      # JWT_SECRET: ${JWT_SECRET:-}
+      # JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      # 可选：SMTP 邮件（也可在系统页面里配）。留空不发送提醒邮件。
+      # SMTP_HOST: ${SMTP_HOST:-}
+      # SMTP_PORT: ${SMTP_PORT:-465}
+      # SMTP_USER: ${SMTP_USER:-}
+      # SMTP_PASS: ${SMTP_PASS:-}
+      # SMTP_FROM: ${SMTP_FROM:-}
 
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
