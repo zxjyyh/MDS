@@ -8,13 +8,13 @@
     </div>
 
     <div class="search-bar">
-      <el-input v-model="query.keyword" placeholder="名称/编号/检测站" clearable style="width: 220px" @keyup.enter="loadData" />
-      <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px">
-        <el-option label="使用中" value="in_use" />
-        <el-option label="闲置" value="idle" />
-        <el-option label="维修中" value="repair" />
-        <el-option label="已报废" value="scrapped" />
+      <el-select v-model="query.department" placeholder="所属检测站" clearable style="width: 160px" @change="onDepartmentChange">
+        <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
       </el-select>
+      <el-select v-model="query.line" placeholder="所属检测线" clearable style="width: 160px" :disabled="!query.department">
+        <el-option v-for="l in lineOptions" :key="l" :label="l" :value="l" />
+      </el-select>
+      <el-input v-model="query.name" placeholder="设备名称" clearable style="width: 200px" @keyup.enter="loadData" />
       <el-button type="primary" @click="loadData">查询</el-button>
       <el-button @click="resetQuery">重置</el-button>
     </div>
@@ -77,7 +77,7 @@
         <el-form-item label="状态">
           <el-select v-model="form.status" style="width:100%">
             <el-option label="使用中" value="in_use" /><el-option label="闲置" value="idle" />
-            <el-option label="维修中" value="repair" /><el-option label="已报废" value="scrapped" />
+            <el-option label="送检中" value="inspecting" />
           </el-select>
         </el-form-item>
         <el-form-item label="检定证书编号">
@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { equipmentApi } from '../../api/equipment';
@@ -117,7 +117,20 @@ window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 
 const list = ref<any[]>([]);
 const loading = ref(false);
 const total = ref(0);
-const query = reactive({ page: 1, pageSize: 20, keyword: '', status: '' });
+const query = reactive({ page: 1, pageSize: 20, department: '', line: '', name: '' });
+
+// 检测站 / 检测线筛选选项
+const departments = ref<string[]>([]);
+const linesMap = ref<Record<string, string[]>>({});
+const lineOptions = computed(() => (query.department ? linesMap.value[query.department] || [] : []));
+function onDepartmentChange() { query.line = ''; }
+async function loadOptions() {
+  try {
+    const res: any = await equipmentApi.options();
+    departments.value = res.data.departments || [];
+    linesMap.value = res.data.lines || {};
+  } catch { /* 忽略选项加载失败，不影响列表 */ }
+}
 
 // 新增对话框
 const dialogVisible = ref(false);
@@ -132,8 +145,8 @@ const rules: FormRules = {
 };
 
 function fmtDate(d?: string) { return d ? d.substring(0, 10) : '-'; }
-function statusLabel(s: string) { return { in_use: '使用中', idle: '闲置', repair: '维修中', scrapped: '已报废' }[s] || s; }
-function statusType(s: string): any { return { in_use: 'success', idle: 'info', repair: 'warning', scrapped: 'danger' }[s] || 'info'; }
+function statusLabel(s: string) { return { in_use: '使用中', idle: '闲置', inspecting: '送检中', repair: '维修中', scrapped: '已报废' }[s] || s; }
+function statusType(s: string): any { return { in_use: 'success', idle: 'info', inspecting: 'warning', repair: 'warning', scrapped: 'danger' }[s] || 'info'; }
 
 // 排序
 const sortKey = ref('');
@@ -157,7 +170,7 @@ async function loadData() {
     total.value = res.data.total;
   } finally { loading.value = false; }
 }
-function resetQuery() { query.keyword = ''; query.status = ''; query.page = 1; loadData(); }
+function resetQuery() { query.department = ''; query.line = ''; query.name = ''; query.page = 1; loadData(); }
 function goDetail(id: number) { router.push(`/equipment/${id}`); }
 function resetForm() { Object.assign(form, { name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', remark: '' }); permFlag.value = false; }
 
@@ -179,7 +192,7 @@ async function removeRow(row: any) {
   loadData();
 }
 
-onMounted(loadData);
+onMounted(() => { loadData(); loadOptions(); });
 </script>
 
 <style scoped lang="scss">

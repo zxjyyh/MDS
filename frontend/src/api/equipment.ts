@@ -2,6 +2,7 @@ import request from './request';
 
 export const equipmentApi = {
   list: (params: any) => request.get('/equipment', { params }),
+  options: () => request.get('/equipment/options'),
   detail: (id: number) => request.get(`/equipment/${id}`),
   create: (data: any) => request.post('/equipment', data),
   update: (id: number, data: any) => request.put(`/equipment/${id}`, data),

@@ -11,17 +11,20 @@ import (
 
 type EquipmentService struct{ DB *sqlx.DB }
 
-func (s *EquipmentService) List(keyword, status string, page, pageSize int) ([]models.Equipment, int, error) {
+func (s *EquipmentService) List(department, line, name string, page, pageSize int) ([]models.Equipment, int, error) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
-	if keyword != "" {
-		where += " AND (e.name LIKE ? OR e.serial_number LIKE ? OR e.model LIKE ? OR e.department LIKE ?)"
-		kw := "%" + keyword + "%"
-		args = append(args, kw, kw, kw, kw)
+	if department != "" {
+		where += " AND e.department=?"
+		args = append(args, department)
 	}
-	if status != "" {
-		where += " AND e.status=?"
-		args = append(args, status)
+	if line != "" {
+		where += " AND e.line=?"
+		args = append(args, line)
+	}
+	if name != "" {
+		where += " AND e.name LIKE ?"
+		args = append(args, "%"+name+"%")
 	}
 
 	var total int
@@ -49,6 +52,29 @@ func (s *EquipmentService) List(keyword, status string, page, pageSize int) ([]m
 	}
 
 	return list, total, nil
+}
+
+// Options 返回用于筛选下拉框的检测站列表，以及各检测站下的检测线列表。
+func (s *EquipmentService) Options() ([]string, map[string][]string, error) {
+	departments := []string{}
+	if err := s.DB.Select(&departments, `SELECT DISTINCT department FROM equipment WHERE department IS NOT NULL AND department != '' ORDER BY department`); err != nil {
+		return nil, nil, err
+	}
+
+	type lineRow struct {
+		Department string `db:"department"`
+		Line       string `db:"line"`
+	}
+	var rows []lineRow
+	if err := s.DB.Select(&rows, `SELECT DISTINCT department, line FROM equipment WHERE line IS NOT NULL AND line != '' ORDER BY department, line`); err != nil {
+		return nil, nil, err
+	}
+
+	lines := map[string][]string{}
+	for _, r := range rows {
+		lines[r.Department] = append(lines[r.Department], r.Line)
+	}
+	return departments, lines, nil
 }
 
 func (s *EquipmentService) GetByID(id int) (*models.Equipment, error) {

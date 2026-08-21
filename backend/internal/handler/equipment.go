@@ -9,12 +9,22 @@ import (
 func (h *Handler) ListEquipment(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "pageSize", 10)
-	list, total, err := h.EquipmentSvc.List(c.Query("keyword"), c.Query("status"), page, pageSize)
+	list, total, err := h.EquipmentSvc.List(c.Query("department"), c.Query("line"), c.Query("name"), page, pageSize)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
 	}
 	utils.Paginated(c, list, total, page, pageSize)
+}
+
+// EquipmentOptions 返回用于筛选下拉框的所属检测站列表，以及各检测站下的所属检测线列表。
+func (h *Handler) EquipmentOptions(c *gin.Context) {
+	departments, lines, err := h.EquipmentSvc.Options()
+	if err != nil {
+		utils.Fail(c, -1, "查询失败")
+		return
+	}
+	utils.Success(c, gin.H{"departments": departments, "lines": lines})
 }
 
 func (h *Handler) GetEquipment(c *gin.Context) {

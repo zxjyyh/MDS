@@ -53,7 +53,7 @@
             <el-form-item label="状态">
               <el-select v-model="form.status" style="width:100%">
                 <el-option label="使用中" value="in_use" /><el-option label="闲置" value="idle" />
-                <el-option label="维修中" value="repair" /><el-option label="已报废" value="scrapped" />
+                <el-option label="送检中" value="inspecting" />
               </el-select>
             </el-form-item>
             <el-form-item label="检定证书编号">
@@ -86,7 +86,6 @@
           </template>
           <el-table :data="sortedCerts" stripe border @row-dblclick="(row: any) => previewCert(row)" @sort-change="onCertSort">
             <el-table-column prop="certType" label="类型" min-width="100" sortable="custom" />
-            <el-table-column prop="certNumber" label="编号" min-width="130" show-overflow-tooltip />
             <el-table-column prop="expiryDate" label="到期日期" width="105" sortable="custom">
               <template #default="{ row }">{{ row.expiryDate ? formatDate(row.expiryDate) : '长期有效' }}</template>
             </el-table-column>

@@ -50,8 +50,7 @@ export const CERT_TYPES: Record<string, string> = {
 export const EQUIP_STATUS: Record<string, string> = {
   in_use: '使用中',
   idle: '闲置',
-  repair: '维修中',
-  scrapped: '已报废',
+  inspecting: '送检中',
 };
 
 export const PERSONNEL_STATUS: Record<string, string> = {
