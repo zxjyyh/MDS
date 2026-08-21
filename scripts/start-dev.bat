@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal
 REM 脚本位于 scripts\ 下，回退一级到仓库根目录
 set "ROOT=%~dp0..\"
