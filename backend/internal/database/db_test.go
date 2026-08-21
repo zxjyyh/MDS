@@ -137,3 +137,69 @@ func TestNormalizeLegacyTimestamps(t *testing.T) {
 		t.Fatalf("不幂等，第二次仍改写了 %d 行", again)
 	}
 }
+
+// TestRelaxEquipmentCertExpiry 回归 2026-08-21 的 NOT NULL 崩溃（报错 1299）：
+// 旧库 equipment_certificates.expiry_date 是 NOT NULL，而前端不强制填到期日期，
+// 后端又把空日期置为 nil 插入，于是撞约束报错。迁移须把该列改为可空，
+// 且兼容「已存在、带 NOT NULL 的存量库」。
+func TestRelaxEquipmentCertExpiry(t *testing.T) {
+	db := openTestDB(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate 失败: %v", err)
+	}
+
+	// 删掉 AutoMigrate 建的可空版本，手工重建为「旧库」的 NOT NULL 结构
+	db.MustExec(`DROP TABLE IF EXISTS equipment_certificates`)
+	db.MustExec(`CREATE TABLE equipment_certificates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+		cert_type TEXT NOT NULL,
+		cert_number TEXT,
+		issue_date TEXT,
+		expiry_date TEXT NOT NULL,
+		file_id INTEGER REFERENCES uploaded_files(id) ON DELETE SET NULL,
+		remark TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`)
+	db.MustExec(`INSERT INTO equipment (id, name, serial_number) VALUES (1, '设备A', 'SN001')`)
+	db.MustExec(`INSERT INTO equipment_certificates (equipment_id, cert_type, expiry_date)
+		VALUES (1, '检测', '2026-12-31')`)
+
+	if !columnIsNotNull(db, "equipment_certificates", "expiry_date") {
+		t.Fatal("前置条件失败：模拟旧表 expiry_date 应为 NOT NULL")
+	}
+
+	if err := relaxEquipmentCertExpiry(db); err != nil {
+		t.Fatalf("relaxEquipmentCertExpiry 失败: %v", err)
+	}
+
+	if columnIsNotNull(db, "equipment_certificates", "expiry_date") {
+		t.Fatal("迁移后 expiry_date 仍标记为 NOT NULL")
+	}
+
+	// 关键：空/ NULL 的到期日期现在能插入（复现并修复 1299）
+	if _, err := db.Exec(`INSERT INTO equipment_certificates
+		(equipment_id, cert_type, expiry_date) VALUES (1, '合格证', NULL)`); err != nil {
+		t.Fatalf("迁移后仍无法插入空到期日期: %v", err)
+	}
+
+	// 旧数据必须完好
+	var n int
+	if err := db.Get(&n, `SELECT COUNT(*) FROM equipment_certificates`); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("迁移后数据丢失，期望 2 行，实际 %d", n)
+	}
+
+	// 幂等：再跑一次不应报错，也不丢数据
+	if err := relaxEquipmentCertExpiry(db); err != nil {
+		t.Fatalf("重复运行迁移失败: %v", err)
+	}
+	var n2 int
+	db.Get(&n2, `SELECT COUNT(*) FROM equipment_certificates`)
+	if n2 != 2 {
+		t.Fatalf("幂等运行后数据异常，期望 2 行，实际 %d", n2)
+	}
+}

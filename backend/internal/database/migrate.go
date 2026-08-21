@@ -112,7 +112,7 @@ func AutoMigrate(db *sqlx.DB) error {
 			"cert_type" TEXT NOT NULL,
 			"cert_number" TEXT,
 			"issue_date" TEXT,
-			"expiry_date" TEXT NOT NULL,
+			"expiry_date" TEXT,
 			"file_id" INTEGER REFERENCES "uploaded_files"("id") ON DELETE SET NULL,
 			"remark" TEXT,
 			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
@@ -230,8 +230,77 @@ func AutoMigrate(db *sqlx.DB) error {
 		db.Exec(stmt) // ignore error (column may already exist or already renamed)
 	}
 
+	// 存量库兼容：equipment_certificates.expiry_date 早期被定义为 NOT NULL，
+	// 但后端插入逻辑（空日期置 nil）与 personnel_certificates（可空）不一致，
+	// 导致不填到期日期时插入 NULL 触发 SQLITE_CONSTRAINT_NOTNULL(1299)。
+	// SQLite 不支持 ALTER COLUMN DROP NOT NULL，只能重建表，故用事务化迁移。
+	if err := relaxEquipmentCertExpiry(db); err != nil {
+		log.Printf("WARN: 放宽 equipment_certificates.expiry_date 约束失败: %v", err)
+	}
+
 	log.Println("Database migration completed successfully")
 	return nil
+}
+
+// relaxEquipmentCertExpiry 把 equipment_certificates.expiry_date 从 NOT NULL 改为可空。
+// 通过 PRAGMA table_info 探测当前约束，已是可空则直接返回（幂等，可重复运行）。
+func relaxEquipmentCertExpiry(db *sqlx.DB) error {
+	if !columnIsNotNull(db, "equipment_certificates", "expiry_date") {
+		return nil // 新建库或已修复的库：无需处理
+	}
+
+	tx, err := db.Beginx()
+	if err != nil {
+		return err
+	}
+	stmts := []string{
+		`CREATE TABLE equipment_certificates_new (
+			"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+			"equipment_id" INTEGER NOT NULL REFERENCES "equipment"("id") ON DELETE CASCADE,
+			"cert_type" TEXT NOT NULL,
+			"cert_number" TEXT,
+			"issue_date" TEXT,
+			"expiry_date" TEXT,
+			"file_id" INTEGER REFERENCES "uploaded_files"("id") ON DELETE SET NULL,
+			"remark" TEXT,
+			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
+			"updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO equipment_certificates_new (id, equipment_id, cert_type, cert_number, issue_date, expiry_date, file_id, remark, created_at, updated_at)
+			SELECT id, equipment_id, cert_type, cert_number, issue_date, expiry_date, file_id, remark, created_at, updated_at
+			FROM equipment_certificates`,
+		`DROP TABLE equipment_certificates`,
+		`ALTER TABLE equipment_certificates_new RENAME TO equipment_certificates`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("relax equipment_certificates.expiry_date: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// columnIsNotNull 通过 PRAGMA table_info 判断某列当前是否被标记为 NOT NULL。
+func columnIsNotNull(db *sqlx.DB, table, col string) bool {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false
+		}
+		if name == col {
+			return notnull == 1
+		}
+	}
+	return false
 }
 
 // legacyTimestampLayout 是 SQLite `DEFAULT (datetime('now'))` 产生的格式，且为 UTC。
