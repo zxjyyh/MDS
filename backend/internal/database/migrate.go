@@ -138,6 +138,11 @@ func AutoMigrate(db *sqlx.DB) error {
 			"issue_date" TEXT,
 			"expiry_date" TEXT,
 			"description" TEXT,
+			"company_name" TEXT,
+			"unified_credit_code" TEXT,
+			"legal_person" TEXT,
+			"address" TEXT,
+			"cert_number" TEXT,
 			"file_id" INTEGER REFERENCES "uploaded_files"("id") ON DELETE SET NULL,
 			"created_by" INTEGER REFERENCES "users"("id"),
 			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
@@ -225,6 +230,12 @@ func AutoMigrate(db *sqlx.DB) error {
 		`ALTER TABLE personnel ADD COLUMN internal_auditor_date TEXT`,
 		// Users: 令牌世代号。改密 / 重置 / 禁用 / 登出时自增，用于即时吊销已签发的 JWT。
 		`ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 0`,
+		// 公司档案（资料库）扩展字段：公司名称 / 统一信用代码 / 法人 / 地址 / 证书编号
+		`ALTER TABLE documents ADD COLUMN company_name TEXT`,
+		`ALTER TABLE documents ADD COLUMN unified_credit_code TEXT`,
+		`ALTER TABLE documents ADD COLUMN legal_person TEXT`,
+		`ALTER TABLE documents ADD COLUMN address TEXT`,
+		`ALTER TABLE documents ADD COLUMN cert_number TEXT`,
 	}
 	for _, stmt := range upgrades {
 		db.Exec(stmt) // ignore error (column may already exist or already renamed)

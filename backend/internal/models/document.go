@@ -10,6 +10,14 @@ type Document struct {
 	IssueDate   *string `db:"issue_date" json:"issueDate"`
 	ExpiryDate  *string `db:"expiry_date" json:"expiryDate"`
 	Description *string `db:"description" json:"description"`
+
+	// 公司档案（资料库）扩展字段
+	CompanyName       *string `db:"company_name" json:"companyName"`
+	UnifiedCreditCode *string `db:"unified_credit_code" json:"unifiedCreditCode"`
+	LegalPerson       *string `db:"legal_person" json:"legalPerson"`
+	Address           *string `db:"address" json:"address"`
+	CertNumber        *string `db:"cert_number" json:"certNumber"`
+
 	FileID      *int    `db:"file_id" json:"fileId"`
 	CreatedByID *int    `db:"created_by" json:"createdById"`
 	CreatedAt   string  `db:"created_at" json:"createdAt"`

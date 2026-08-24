@@ -6,7 +6,7 @@
         <el-button v-if="authStore.isAdmin" @click="catDialog = true">
           <el-icon><FolderOpened /></el-icon>管理分类
         </el-button>
-        <el-button v-if="authStore.isAdmin" type="primary" @click="docDialog = true">
+        <el-button v-if="authStore.isAdmin" type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon>上传文档
         </el-button>
       </div>
@@ -43,31 +43,55 @@
             <el-button @click="resetQuery">重置</el-button>
           </div>
 
-    <el-table :data="list" v-loading="loading" stripe border class="doc-table">
-            <el-table-column type="index" label="#" width="50" />
-            <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="docNumber" label="文档编号" width="140" show-overflow-tooltip />
-            <el-table-column prop="version" label="版本" width="80" />
-            <el-table-column label="分类" width="120">
-              <template #default="{ row }">{{ row.category?.name || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="发布日期" width="110">
-              <template #default="{ row }">{{ formatDate(row.issueDate) }}</template>
-            </el-table-column>
-            <el-table-column label="到期日期" width="110">
-              <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }"><ExpiryBadge :expiry-date="row.expiryDate" /></template>
-            </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
-              <template #default="{ row }">
-                <el-button text size="small" type="primary" @click="goDetail(row.id)">预览</el-button>
-                <el-button text size="small" @click="downloadDoc(row)">下载</el-button>
-                <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click="removeDoc(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+    <el-table :data="list" v-loading="loading" stripe border class="doc-table" @row-dblclick="previewRow">
+      <el-table-column type="index" label="序号" width="55" />
+      <!-- 公司档案：文件名 + 按分类动态字段 -->
+      <template v-if="isArchive">
+        <el-table-column label="文件名" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.file?.originalName || row.title }}</template>
+        </el-table-column>
+        <el-table-column label="分类" width="110">
+          <template #default="{ row }">{{ row.category?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="companyName" label="公司名称" min-width="160" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="unifiedCreditCode" label="统一信用代码" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="legalPerson" label="法人" width="100" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="address" label="地址" min-width="180" show-overflow-tooltip />
+        <el-table-column v-if="isCert" prop="certNumber" label="证书编号" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isCert" label="证书有效期" width="110">
+          <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="110">
+          <template #default="{ row }">{{ formatDate(row.updatedAt) }}</template>
+        </el-table-column>
+      </template>
+      <!-- 非公司档案：通用列 -->
+      <template v-else>
+        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="docNumber" label="文档编号" width="140" show-overflow-tooltip />
+        <el-table-column prop="version" label="版本" width="80" />
+        <el-table-column label="分类" width="120">
+          <template #default="{ row }">{{ row.category?.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="发布日期" width="110">
+          <template #default="{ row }">{{ formatDate(row.issueDate) }}</template>
+        </el-table-column>
+        <el-table-column label="到期日期" width="110">
+          <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }"><ExpiryBadge :expiry-date="row.expiryDate" /></template>
+        </el-table-column>
+      </template>
+      <el-table-column label="操作" width="210" fixed="right">
+        <template #default="{ row }">
+          <el-button text size="small" type="primary" @click="previewRow(row)">预览</el-button>
+          <el-button v-if="authStore.isAdmin" text size="small" @click="editDoc(row)">编辑</el-button>
+          <el-button text size="small" @click="downloadDoc(row)">下载</el-button>
+          <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click="removeDoc(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
           <div class="pagination-wrap">
             <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadData" @size-change="loadData" />
@@ -76,9 +100,9 @@
       </el-col>
     </el-row>
 
-    <!-- 上传文档对话框 -->
-    <el-dialog v-model="docDialog" title="上传文档" :width="isMobile ? '94%' : '600px'">
-      <el-form ref="docFormRef" :model="docForm" :rules="docRules" label-width="90px">
+    <!-- 上传/编辑文档对话框 -->
+    <el-dialog v-model="docDialog" :title="editingDoc ? '编辑文档' : '上传文档'" :width="isMobile ? '94%' : '620px'">
+      <el-form ref="docFormRef" :model="docForm" :rules="docRules" label-width="95px">
         <el-form-item label="分类" prop="categoryId">
           <el-tree-select
             v-model="docForm.categoryId"
@@ -90,19 +114,47 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="docForm.title" />
-        </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="文档编号"><el-input v-model="docForm.docNumber" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="版本"><el-input v-model="docForm.version" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="发布日期"><el-date-picker v-model="docForm.issueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="到期日期"><el-date-picker v-model="docForm.expiryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
-        </el-row>
+
+        <!-- 公司档案：文件名 + 扩展字段 -->
+        <template v-if="isArchive">
+          <el-form-item label="文件名" prop="fileName">
+            <el-input v-model="docForm.fileName" placeholder="上传文件后自动填入，可修改" />
+          </el-form-item>
+          <el-form-item label="公司名称">
+            <el-input v-model="docForm.companyName" />
+          </el-form-item>
+          <template v-if="isLicenseForm">
+            <el-row :gutter="16">
+              <el-col :span="12"><el-form-item label="统一信用代码"><el-input v-model="docForm.unifiedCreditCode" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="法人"><el-input v-model="docForm.legalPerson" /></el-form-item></el-col>
+            </el-row>
+            <el-form-item label="地址"><el-input v-model="docForm.address" /></el-form-item>
+          </template>
+          <template v-if="isCertForm">
+            <el-row :gutter="16">
+              <el-col :span="12"><el-form-item label="证书编号"><el-input v-model="docForm.certNumber" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="证书有效期"><el-date-picker v-model="docForm.expiryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+            </el-row>
+          </template>
+        </template>
+
+        <!-- 非公司档案：标题等通用字段 -->
+        <template v-else>
+          <el-form-item label="标题" prop="title">
+            <el-input v-model="docForm.title" />
+          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :span="12"><el-form-item label="文档编号"><el-input v-model="docForm.docNumber" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="版本"><el-input v-model="docForm.version" /></el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12"><el-form-item label="发布日期"><el-date-picker v-model="docForm.issueDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="到期日期"><el-date-picker v-model="docForm.expiryDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item></el-col>
+          </el-row>
+        </template>
+
         <el-form-item label="文档文件" prop="fileId">
-          <FileUploader @success="(f: any) => (docForm.fileId = f.id)" />
+          <FileUploader @success="(f: any) => onFileUploaded(f)" />
           <el-tag v-if="docForm.fileId" type="success" closable @close="docForm.fileId = 0">已上传</el-tag>
         </el-form-item>
         <el-form-item label="描述"><el-input v-model="docForm.description" type="textarea" :rows="2" /></el-form-item>
@@ -111,6 +163,11 @@
         <el-button @click="docDialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveDoc">保存</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 预览对话框 -->
+    <el-dialog v-model="previewDialog" title="文件预览" :width="isMobile ? '94%' : '800px'" destroy-on-close>
+      <FilePreview v-if="previewFile" :file-id="previewFile.id" :file-name="previewFile.originalName" :mime-type="previewFile.mimeType" />
     </el-dialog>
 
     <!-- 分类管理对话框 -->
@@ -142,6 +199,7 @@ import { useAuthStore } from '../stores/auth';
 import CategoryTree from './CategoryTree.vue';
 import ExpiryBadge from './ExpiryBadge.vue';
 import FileUploader from './FileUploader.vue';
+import FilePreview from './FilePreview.vue';
 import dayjs from 'dayjs';
 
 const props = defineProps<{ systemType: string; title: string }>();
@@ -158,15 +216,36 @@ const query = reactive<any>({ page: 1, pageSize: 20, keyword: '', expiryStatus: 
 const categoryOptions = ref<any[]>([]);
 const catTreeRef = ref();
 
+// 是否公司档案模块
+const isArchive = computed(() => props.systemType === 'company_archive');
+// 当前选中分类名（决定表格列）
+const selectedCategoryName = ref('');
+const isLicense = computed(() => selectedCategoryName.value === '营业执照');
+const isCert = computed(() => selectedCategoryName.value === '资质证书');
+
+// 表单分类名（决定表单字段）
+function findCategoryName(nodes: any[], id: any): string {
+  for (const n of nodes || []) {
+    if (n.id === id) return n.name;
+    const r = findCategoryName(n.children, id);
+    if (r) return r;
+  }
+  return '';
+}
+const docFormCategoryName = computed(() => findCategoryName(categoryOptions.value, docForm.categoryId));
+const isLicenseForm = computed(() => docFormCategoryName.value === '营业执照');
+const isCertForm = computed(() => docFormCategoryName.value === '资质证书');
+
 const docDialog = ref(false);
 const docFormRef = ref<FormInstance>();
 const saving = ref(false);
-const docForm = reactive<any>({ categoryId: null, title: '', docNumber: '', version: '', issueDate: '', expiryDate: '', fileId: 0, description: '' });
-const docRules: FormRules = {
+const editingDoc = ref<any>(null);
+const docForm = reactive<any>({ categoryId: null, title: '', fileName: '', companyName: '', unifiedCreditCode: '', legalPerson: '', address: '', certNumber: '', docNumber: '', version: '', issueDate: '', expiryDate: '', fileId: 0, description: '' });
+const docRules = computed<FormRules>(() => ({
   categoryId: [{ required: true, message: '请选择分类' }],
-  title: [{ required: true, message: '请输入标题' }],
+  title: isArchive.value ? [] : [{ required: true, message: '请输入标题' }],
   fileId: [{ required: true, validator: (_r, v, cb) => (v ? cb() : cb(new Error('请上传文件'))) }],
-};
+}));
 
 const catDialog = ref(false);
 const catForm = reactive<any>({ parentId: null, name: '' });
@@ -190,6 +269,7 @@ async function loadData() {
 }
 
 function handleSelect(node: any) {
+  selectedCategoryName.value = node.name || '';
   query.categoryId = node.id;
   query.page = 1;
   loadData();
@@ -197,6 +277,7 @@ function handleSelect(node: any) {
 
 function resetQuery() {
   query.keyword = ''; query.expiryStatus = ''; query.categoryId = null; query.page = 1;
+  selectedCategoryName.value = '';
   loadData();
 }
 
@@ -217,14 +298,76 @@ function downloadDoc(row: any) {
   window.open(fileApi.downloadUrl(row.fileId), '_blank');
 }
 
+// 双击/预览：弹窗在线预览
+const previewDialog = ref(false);
+const previewFile = ref<any>(null);
+function previewRow(row: any) {
+  if (!row.file) {
+    ElMessage.warning('该文档没有文件');
+    return;
+  }
+  previewFile.value = row.file;
+  previewDialog.value = true;
+}
+
+// 上传成功后：回填文件名（取上传文件的原始名）
+function onFileUploaded(f: any) {
+  docForm.fileId = f.id;
+  if (isArchive.value && !docForm.fileName) {
+    docForm.fileName = f.originalName || f.name || '';
+  }
+}
+
+// 编辑
+function editDoc(row: any) {
+  editingDoc.value = row;
+  Object.assign(docForm, {
+    categoryId: row.categoryId,
+    title: row.title || '',
+    fileName: row.file?.originalName || row.title || '',
+    companyName: row.companyName || '',
+    unifiedCreditCode: row.unifiedCreditCode || '',
+    legalPerson: row.legalPerson || '',
+    address: row.address || '',
+    certNumber: row.certNumber || '',
+    docNumber: row.docNumber || '',
+    version: row.version || '',
+    issueDate: row.issueDate ? row.issueDate.substring(0, 10) : '',
+    expiryDate: row.expiryDate ? row.expiryDate.substring(0, 10) : '',
+    fileId: row.fileId || 0,
+    description: row.description || '',
+  });
+  docDialog.value = true;
+}
+
+function resetDocForm() {
+  editingDoc.value = null;
+  Object.assign(docForm, { categoryId: null, title: '', fileName: '', companyName: '', unifiedCreditCode: '', legalPerson: '', address: '', certNumber: '', docNumber: '', version: '', issueDate: '', expiryDate: '', fileId: 0, description: '' });
+}
+
+function openCreate() {
+  resetDocForm();
+  docDialog.value = true;
+}
+
 async function saveDoc() {
   await docFormRef.value?.validate();
   saving.value = true;
   try {
-    await documentApi.create({ ...docForm, systemType: props.systemType });
-    ElMessage.success('上传成功');
+    const payload: any = { ...docForm };
+    // 公司档案：title 非必填，用文件名/公司名称兜底，避免 NOT NULL 约束
+    if (isArchive.value && !payload.title) {
+      payload.title = payload.fileName || payload.companyName || '未命名';
+    }
+    if (editingDoc.value) {
+      await documentApi.update(editingDoc.value.id, payload);
+      ElMessage.success('保存成功');
+    } else {
+      await documentApi.create({ ...payload, systemType: props.systemType });
+      ElMessage.success('上传成功');
+    }
     docDialog.value = false;
-    Object.assign(docForm, { categoryId: null, title: '', docNumber: '', version: '', issueDate: '', expiryDate: '', fileId: 0, description: '' });
+    resetDocForm();
     loadData();
   } finally { saving.value = false; }
 }

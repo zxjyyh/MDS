@@ -128,10 +128,12 @@ func (s *DocumentService) Create(data map[string]interface{}, userID int) error 
 	s.DB.Get(&sysType, "SELECT system_type FROM doc_categories WHERE id=?", categoryID)
 
 	now := utils.NowString()
-	res, err := s.DB.Exec(`INSERT INTO documents (category_id, system_type, title, doc_number, version, issue_date, expiry_date, description, file_id, created_by, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+	res, err := s.DB.Exec(`INSERT INTO documents (category_id, system_type, title, doc_number, version, issue_date, expiry_date, description, company_name, unified_credit_code, legal_person, address, cert_number, file_id, created_by, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		categoryID, sysType, data["title"], data["docNumber"], data["version"],
-		data["issueDate"], data["expiryDate"], data["description"], data["fileId"], userID, now, now)
+		data["issueDate"], data["expiryDate"], data["description"],
+		data["companyName"], data["unifiedCreditCode"], data["legalPerson"], data["address"], data["certNumber"],
+		data["fileId"], userID, now, now)
 	if err != nil {
 		return err
 	}
@@ -141,16 +143,38 @@ func (s *DocumentService) Create(data map[string]interface{}, userID int) error 
 	if data["fileId"] != nil {
 		s.DB.Exec("UPDATE uploaded_files SET owner_type='document', owner_id=? WHERE id=?", docID, data["fileId"])
 	}
+	// 同步文件名（若有）
+	s.applyFileName(data)
 
 	return nil
 }
 
 func (s *DocumentService) Update(id int, data map[string]interface{}) error {
 	now := utils.NowString()
-	_, err := s.DB.Exec(`UPDATE documents SET title=?, doc_number=?, version=?, issue_date=?, expiry_date=?, description=?, file_id=?, updated_at=? WHERE id=?`,
+	_, err := s.DB.Exec(`UPDATE documents SET title=?, doc_number=?, version=?, issue_date=?, expiry_date=?, description=?, company_name=?, unified_credit_code=?, legal_person=?, address=?, cert_number=?, file_id=?, updated_at=? WHERE id=?`,
 		data["title"], data["docNumber"], data["version"], data["issueDate"], data["expiryDate"],
-		data["description"], data["fileId"], now, id)
-	return err
+		data["description"], data["companyName"], data["unifiedCreditCode"], data["legalPerson"], data["address"], data["certNumber"],
+		data["fileId"], now, id)
+	if err != nil {
+		return err
+	}
+	// 同步文件名（若有）
+	s.applyFileName(data)
+	return nil
+}
+
+// applyFileName 当请求携带 fileName 时，把其写入对应文件的 original_name，
+// 实现「修改文件名时同步修改已上传文件名」。
+func (s *DocumentService) applyFileName(data map[string]interface{}) {
+	fn, ok := data["fileName"].(string)
+	if !ok || fn == "" {
+		return
+	}
+	fileID, ok := data["fileId"].(float64)
+	if !ok || fileID <= 0 {
+		return
+	}
+	s.DB.Exec("UPDATE uploaded_files SET original_name=? WHERE id=?", fn, int(fileID))
 }
 
 func (s *DocumentService) Delete(id int) error {
