@@ -15,9 +15,8 @@ func (s *PersonnelService) List(keyword, department, status string, page, pageSi
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if keyword != "" {
-		where += " AND (p.name LIKE ? OR p.phone LIKE ?)"
-		kw := "%" + keyword + "%"
-		args = append(args, kw, kw)
+		where += " AND p.name LIKE ?"
+		args = append(args, "%"+keyword+"%")
 	}
 	if department != "" {
 		where += " AND p.department=?"
@@ -86,6 +85,15 @@ func (s *PersonnelService) List(keyword, department, status string, page, pageSi
 	}
 
 	return list, total, nil
+}
+
+// Options 返回用于筛选下拉框的检测站去重列表（取自人员表自身）。
+func (s *PersonnelService) Options() ([]string, error) {
+	departments := []string{}
+	if err := s.DB.Select(&departments, `SELECT DISTINCT department FROM personnel WHERE department IS NOT NULL AND department != '' ORDER BY department`); err != nil {
+		return nil, err
+	}
+	return departments, nil
 }
 
 // filesByIDs 一次性按 ID 批量取回文件记录，返回 id -> 文件 的映射。

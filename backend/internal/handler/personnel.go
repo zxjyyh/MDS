@@ -19,6 +19,16 @@ func (h *Handler) ListPersonnel(c *gin.Context) {
 	utils.Paginated(c, list, total, page, pageSize)
 }
 
+// PersonnelOptions 返回用于筛选下拉框的检测站去重列表。
+func (h *Handler) PersonnelOptions(c *gin.Context) {
+	departments, err := h.PersonnelSvc.Options()
+	if err != nil {
+		utils.Fail(c, -1, "查询失败")
+		return
+	}
+	utils.Success(c, gin.H{"departments": departments})
+}
+
 func (h *Handler) GetPersonnel(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	p, err := h.PersonnelSvc.GetByID(id)

@@ -72,6 +72,7 @@ func Setup(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *gin.Engine {
 	// Personnel
 	personnel := api.Group("/personnel", middleware.Auth(db, cfg.JWTSecret))
 	personnel.GET("", h.ListPersonnel)
+	personnel.GET("/options", h.PersonnelOptions)
 	personnel.POST("/:id/certificates", middleware.RequireAdmin, h.AddPersonnelCert)
 	personnel.PUT("/certificates/:certId", middleware.RequireAdmin, h.UpdatePersonnelCert)
 	personnel.DELETE("/certificates/:certId", middleware.RequireAdmin, h.DeletePersonnelCert)

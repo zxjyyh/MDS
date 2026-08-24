@@ -8,8 +8,10 @@
     </div>
 
     <div class="search-bar">
-      <el-input v-model="query.keyword" placeholder="姓名/电话" clearable style="width: 200px" @keyup.enter="loadData" />
-      <el-input v-model="query.department" placeholder="所属检测站" clearable style="width: 160px" @keyup.enter="loadData" />
+      <el-input v-model="query.keyword" placeholder="姓名" clearable style="width: 200px" @keyup.enter="loadData" />
+      <el-select v-model="query.department" placeholder="所属检测站" clearable style="width: 160px">
+        <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
+      </el-select>
       <el-select v-model="query.status" placeholder="在职状态" clearable style="width: 120px">
         <el-option label="在职" value="active" />
         <el-option label="离职" value="resigned" />
@@ -294,6 +296,15 @@ const loading = ref(false);
 const total = ref(0);
 const query = reactive({ page: 1, pageSize: 20, keyword: '', department: '', status: '' });
 
+// 检测站筛选选项
+const departments = ref<string[]>([]);
+async function loadOptions() {
+  try {
+    const res: any = await personnelApi.options();
+    departments.value = res.data.departments || [];
+  } catch { /* 忽略选项加载失败，不影响列表 */ }
+}
+
 // ===== 图片预览 =====
 const previewVisible = ref(false);
 const previewUrl = ref('');
@@ -422,7 +433,7 @@ async function removeRow(row: any) {
   loadData();
 }
 
-onMounted(loadData);
+onMounted(() => { loadData(); loadOptions(); });
 </script>
 
 <style scoped lang="scss">

@@ -2,6 +2,7 @@ import request from './request';
 
 export const personnelApi = {
   list: (params: any) => request.get('/personnel', { params }),
+  options: () => request.get('/personnel/options'),
   detail: (id: number) => request.get(`/personnel/${id}`),
   create: (data: any) => request.post('/personnel', data),
   update: (id: number, data: any) => request.put(`/personnel/${id}`, data),
