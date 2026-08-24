@@ -11,7 +11,7 @@ import (
 
 type EquipmentService struct{ DB *sqlx.DB }
 
-func (s *EquipmentService) List(department, line, name string, page, pageSize int) ([]models.Equipment, int, error) {
+func (s *EquipmentService) List(department, line, name, status string, page, pageSize int) ([]models.Equipment, int, error) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if department != "" {
@@ -25,6 +25,10 @@ func (s *EquipmentService) List(department, line, name string, page, pageSize in
 	if name != "" {
 		where += " AND e.name LIKE ?"
 		args = append(args, "%"+name+"%")
+	}
+	if status != "" {
+		where += " AND e.status=?"
+		args = append(args, status)
 	}
 
 	var total int

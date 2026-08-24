@@ -84,6 +84,7 @@
             v-model="docForm.categoryId"
             :data="categoryOptions"
             :props="{ label: 'name', children: 'children' }"
+            node-key="id"
             check-strictly
             placeholder="选择分类"
             style="width: 100%"
@@ -116,7 +117,7 @@
     <el-dialog v-model="catDialog" title="管理分类" :width="isMobile ? '94%' : '500px'">
       <el-form :model="catForm" label-width="80px" inline>
         <el-form-item label="父分类">
-          <el-tree-select v-model="catForm.parentId" :data="categoryOptions" :props="{ label: 'name', children: 'children' }" check-strictly clearable placeholder="顶级分类" style="width: 180px" />
+          <el-tree-select v-model="catForm.parentId" :data="categoryOptions" :props="{ label: 'name', children: 'children' }" node-key="id" check-strictly clearable placeholder="顶级分类" style="width: 180px" />
         </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="catForm.name" style="width: 180px" />

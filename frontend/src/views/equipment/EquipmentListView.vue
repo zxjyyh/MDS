@@ -15,6 +15,11 @@
         <el-option v-for="l in lineOptions" :key="l" :label="l" :value="l" />
       </el-select>
       <el-input v-model="query.name" placeholder="设备名称" clearable style="width: 200px" @keyup.enter="loadData" />
+      <el-select v-model="query.status" placeholder="设备状态" clearable style="width: 130px">
+        <el-option label="使用中" value="in_use" />
+        <el-option label="闲置" value="idle" />
+        <el-option label="送检中" value="inspecting" />
+      </el-select>
       <el-button type="primary" @click="loadData">查询</el-button>
       <el-button @click="resetQuery">重置</el-button>
     </div>
@@ -117,7 +122,7 @@ window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 
 const list = ref<any[]>([]);
 const loading = ref(false);
 const total = ref(0);
-const query = reactive({ page: 1, pageSize: 20, department: '', line: '', name: '' });
+const query = reactive({ page: 1, pageSize: 20, department: '', line: '', name: '', status: '' });
 
 // 检测站 / 检测线筛选选项
 const departments = ref<string[]>([]);
@@ -170,7 +175,7 @@ async function loadData() {
     total.value = res.data.total;
   } finally { loading.value = false; }
 }
-function resetQuery() { query.department = ''; query.line = ''; query.name = ''; query.page = 1; loadData(); }
+function resetQuery() { query.department = ''; query.line = ''; query.name = ''; query.status = ''; query.page = 1; loadData(); }
 function goDetail(id: number) { router.push(`/equipment/${id}`); }
 function resetForm() { Object.assign(form, { name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', remark: '' }); permFlag.value = false; }
 

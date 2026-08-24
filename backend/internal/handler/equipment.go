@@ -9,7 +9,7 @@ import (
 func (h *Handler) ListEquipment(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "pageSize", 10)
-	list, total, err := h.EquipmentSvc.List(c.Query("department"), c.Query("line"), c.Query("name"), page, pageSize)
+	list, total, err := h.EquipmentSvc.List(c.Query("department"), c.Query("line"), c.Query("name"), c.Query("status"), page, pageSize)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
