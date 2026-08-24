@@ -238,8 +238,39 @@ func AutoMigrate(db *sqlx.DB) error {
 		log.Printf("WARN: 放宽 equipment_certificates.expiry_date 约束失败: %v", err)
 	}
 
+	// 预置「资料库」模块的默认分类（公司档案 / 法规标准），幂等。
+	seedDocCategories(db)
+
 	log.Println("Database migration completed successfully")
 	return nil
+}
+
+// seedDocCategories 幂等预置「资料库」模块的默认分类：
+//   - company_archive（公司档案）：营业执照、资质证书、法人身份证、公司合同、章程内资、整改材料、相关通知
+//   - legal_standard（法规标准）：公安专网标准、环保专网标准
+//
+// 仅当对应 system_type 下不存在同名顶级分类时才插入，可重复运行；
+// 用户后续删除/改名分类后不会被强制还原。
+func seedDocCategories(db *sqlx.DB) {
+	presets := []struct {
+		systemType string
+		names      []string
+	}{
+		{"company_archive", []string{"营业执照", "资质证书", "法人身份证", "公司合同", "章程内资", "整改材料", "相关通知"}},
+		{"legal_standard", []string{"公安专网标准", "环保专网标准"}},
+	}
+	for _, p := range presets {
+		for i, name := range p.names {
+			var count int
+			if err := db.Get(&count, "SELECT COUNT(*) FROM doc_categories WHERE system_type=? AND name=? AND parent_id IS NULL", p.systemType, name); err != nil {
+				continue
+			}
+			if count > 0 {
+				continue
+			}
+			db.Exec("INSERT INTO doc_categories (name, system_type, sort_order) VALUES (?,?,?)", name, p.systemType, i+1)
+		}
+	}
 }
 
 // relaxEquipmentCertExpiry 把 equipment_certificates.expiry_date 从 NOT NULL 改为可空。

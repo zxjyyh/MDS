@@ -33,6 +33,20 @@
             <el-icon><Setting /></el-icon>
             <template #title>设备管理</template>
           </el-menu-item>
+          <el-sub-menu index="archive">
+            <template #title>
+              <el-icon><FolderOpened /></el-icon>
+              <span>资料库</span>
+            </template>
+            <el-menu-item index="/archive/company">
+              <el-icon><Folder /></el-icon>
+              <template #title>公司档案</template>
+            </el-menu-item>
+            <el-menu-item index="/archive/standard">
+              <el-icon><Document /></el-icon>
+              <template #title>法规标准</template>
+            </el-menu-item>
+          </el-sub-menu>
           <el-menu-item index="/qualification">
             <el-icon><Folder /></el-icon>
             <template #title>资质体系文件</template>
@@ -109,6 +123,20 @@
               <el-icon><Setting /></el-icon>
               <template #title>设备管理</template>
             </el-menu-item>
+            <el-sub-menu index="archive">
+              <template #title>
+                <el-icon><FolderOpened /></el-icon>
+                <span>资料库</span>
+              </template>
+              <el-menu-item index="/archive/company">
+                <el-icon><Folder /></el-icon>
+                <template #title>公司档案</template>
+              </el-menu-item>
+              <el-menu-item index="/archive/standard">
+                <el-icon><Document /></el-icon>
+                <template #title>法规标准</template>
+              </el-menu-item>
+            </el-sub-menu>
             <el-menu-item index="/qualification">
               <el-icon><Folder /></el-icon>
               <template #title>资质体系文件</template>

@@ -44,6 +44,30 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '设备详情', hidden: true },
       },
       {
+        path: 'archive/company',
+        name: 'CompanyArchiveList',
+        component: () => import('../views/archive/CompanyArchiveListView.vue'),
+        meta: { title: '公司档案', icon: 'Folder' },
+      },
+      {
+        path: 'archive/company/:id',
+        name: 'CompanyArchiveDetail',
+        component: () => import('../views/archive/ArchiveDocDetailView.vue'),
+        meta: { title: '文档详情', hidden: true },
+      },
+      {
+        path: 'archive/standard',
+        name: 'LegalStandardList',
+        component: () => import('../views/archive/LegalStandardListView.vue'),
+        meta: { title: '法规标准', icon: 'Document' },
+      },
+      {
+        path: 'archive/standard/:id',
+        name: 'LegalStandardDetail',
+        component: () => import('../views/archive/ArchiveDocDetailView.vue'),
+        meta: { title: '文档详情', hidden: true },
+      },
+      {
         path: 'qualification',
         name: 'QualDocList',
         component: () => import('../views/qualification/QualDocListView.vue'),

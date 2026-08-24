@@ -199,8 +199,17 @@ function resetQuery() {
   loadData();
 }
 
+// system_type -> 详情页路由前缀
+const detailPathMap: Record<string, string> = {
+  qualification: 'qualification',
+  safety: 'safety',
+  company_archive: 'archive/company',
+  legal_standard: 'archive/standard',
+};
+
 function goDetail(id: number) {
-  router.push(`/${props.systemType === 'qualification' ? 'qualification' : 'safety'}/${id}`);
+  const base = detailPathMap[props.systemType] || props.systemType;
+  router.push(`/${base}/${id}`);
 }
 
 function downloadDoc(row: any) {
