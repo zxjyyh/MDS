@@ -44,25 +44,26 @@
           </div>
 
     <el-table :data="list" v-loading="loading" stripe border class="doc-table" @row-dblclick="previewRow">
+      <!-- 公司档案：分类在最前 -->
+      <el-table-column v-if="isArchive" label="分类" width="100" fixed="left">
+        <template #default="{ row }">{{ row.category?.name || '-' }}</template>
+      </el-table-column>
       <el-table-column type="index" label="序号" width="55" />
       <!-- 公司档案：文件名 + 按分类动态字段 -->
       <template v-if="isArchive">
-        <el-table-column label="文件名" min-width="180" show-overflow-tooltip>
+        <el-table-column label="文件名" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.file?.originalName || row.title }}</template>
         </el-table-column>
-        <el-table-column label="分类" width="110">
-          <template #default="{ row }">{{ row.category?.name || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="companyName" label="公司名称" min-width="160" show-overflow-tooltip />
-        <el-table-column v-if="isLicense" prop="unifiedCreditCode" label="统一信用代码" min-width="150" show-overflow-tooltip />
-        <el-table-column v-if="isLicense" prop="legalPerson" label="法人" width="100" show-overflow-tooltip />
-        <el-table-column v-if="isLicense" prop="address" label="地址" min-width="180" show-overflow-tooltip />
-        <el-table-column v-if="isCert" prop="certNumber" label="证书编号" min-width="150" show-overflow-tooltip />
-        <el-table-column v-if="isCert" label="证书有效期" width="110">
+        <el-table-column prop="companyName" label="公司名称" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="unifiedCreditCode" label="统一信用代码" min-width="160" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="legalPerson" label="法人" width="90" show-overflow-tooltip />
+        <el-table-column v-if="isLicense" prop="address" label="地址" min-width="160" show-overflow-tooltip />
+        <el-table-column v-if="isCert" prop="certNumber" label="证书编号" min-width="140" show-overflow-tooltip />
+        <el-table-column v-if="isCert" label="证书有效期" width="105">
           <template #default="{ row }">{{ formatDate(row.expiryDate) }}</template>
         </el-table-column>
-        <el-table-column label="更新时间" width="110">
-          <template #default="{ row }">{{ formatDate(row.updatedAt) }}</template>
+        <el-table-column label="证书日期" width="105">
+          <template #default="{ row }">{{ formatDate(row.issueDate) }}</template>
         </el-table-column>
       </template>
       <!-- 非公司档案：通用列 -->
@@ -83,11 +84,9 @@
           <template #default="{ row }"><ExpiryBadge :expiry-date="row.expiryDate" /></template>
         </el-table-column>
       </template>
-      <el-table-column label="操作" width="210" fixed="right">
+      <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <el-button text size="small" type="primary" @click="previewRow(row)">预览</el-button>
           <el-button v-if="authStore.isAdmin" text size="small" @click="editDoc(row)">编辑</el-button>
-          <el-button text size="small" @click="downloadDoc(row)">下载</el-button>
           <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click="removeDoc(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -122,6 +121,9 @@
           </el-form-item>
           <el-form-item label="公司名称">
             <el-input v-model="docForm.companyName" />
+          </el-form-item>
+          <el-form-item label="证书日期">
+            <el-date-picker v-model="docForm.issueDate" type="date" value-format="YYYY-MM-DD" placeholder="手动填写证书日期" style="width: 100%" />
           </el-form-item>
           <template v-if="isLicenseForm">
             <el-row :gutter="16">
