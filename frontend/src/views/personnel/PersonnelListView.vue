@@ -2,9 +2,6 @@
   <div class="page-container">
     <div class="page-header">
       <span class="page-title">人员管理</span>
-      <el-button v-if="authStore.isAdmin" type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>新增人员
-      </el-button>
     </div>
 
     <div class="search-bar">
@@ -20,6 +17,9 @@
       <el-button @click="resetQuery">重置</el-button>
       <el-button v-if="authStore.isAdmin" type="primary" @click="openCertExport">
         <el-icon style="margin-right:4px"><Download /></el-icon>证书
+      </el-button>
+      <el-button v-if="authStore.isAdmin" type="primary" @click="openCreate">
+        <el-icon><Plus /></el-icon>新增人员
       </el-button>
     </div>
 
