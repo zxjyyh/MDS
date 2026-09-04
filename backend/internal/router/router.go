@@ -77,6 +77,8 @@ func Setup(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *gin.Engine {
 	personnel.POST("/:id/certificates", middleware.RequireAdmin, h.AddPersonnelCert)
 	personnel.PUT("/certificates/:certId", middleware.RequireAdmin, h.UpdatePersonnelCert)
 	personnel.DELETE("/certificates/:certId", middleware.RequireAdmin, h.DeletePersonnelCert)
+	// 固定预留证件行（安检证/环保证）的清空：保留行本身，清掉已填信息与已上传附件
+	personnel.POST("/certificates/:certId/clear", middleware.RequireAdmin, h.ClearPersonnelCert)
 	personnel.GET("/:id", h.GetPersonnel)
 	personnel.POST("", middleware.RequireAdmin, h.CreatePersonnel)
 	personnel.PUT("/:id", middleware.RequireAdmin, h.UpdatePersonnel)

@@ -211,6 +211,8 @@
               <template #default="{ row }">
                 <el-button text size="small" type="primary" @click.stop="openEditCert(row)">编辑</el-button>
                 <el-button text size="small" type="primary" :disabled="!row.file" @click.stop="previewCert(row)">预览</el-button>
+                <!-- 固定预留项：不可删除，改为「清空」（清掉已填信息与已上传附件，行保留） -->
+                <el-button v-if="authStore.isAdmin && isReservedCertName(row.certName)" text size="small" type="warning" :disabled="!certHasContent(row)" @click.stop="clearCert(row)">清空</el-button>
                 <el-button v-if="authStore.isAdmin && !isReservedCertName(row.certName)" text size="small" type="danger" @click.stop="removeCert(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -454,6 +456,23 @@ async function removeCert(row: any) {
   await ElMessageBox.confirm('确认删除该证件？', '警告', { type: 'warning' });
   await personnelApi.removeCert(row.id);
   ElMessage.success('删除成功');
+  loadData();
+}
+
+// 预留行当前是否有内容（已上传文件或已填编号/到期/备注），决定「清空」是否可用
+function certHasContent(row: any) {
+  return !!(row.fileId || row.certNumber || row.expiryDate || row.remark);
+}
+
+// 清空固定预留证件行：保留行本身，清掉已填信息与已上传附件（后端同时删除物理文件）
+async function clearCert(row: any) {
+  await ElMessageBox.confirm(
+    `确定清空「${row.certName}」吗？将删除已上传的证书文件，并清空编号、到期日期等信息。\n固定预留项本身会保留，可重新上传。`,
+    '清空确认',
+    { type: 'warning', confirmButtonText: '清空', confirmButtonClass: 'el-button--danger' }
+  );
+  await personnelApi.clearCert(row.id);
+  ElMessage.success('已清空，可重新上传');
   loadData();
 }
 

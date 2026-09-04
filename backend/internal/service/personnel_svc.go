@@ -297,6 +297,36 @@ func (s *PersonnelService) DeleteCert(certID int) error {
 	return err
 }
 
+// ClearReservedCert 清空固定预留证件行（安检证/环保证）的内容：
+// 删除已上传的附件（物理文件 + uploaded_files 记录），并把编号/签发日期/到期日期/备注
+// 全部复位为空，让该行回到"待上传"初始状态；证书行本身保留（名称即锚点，不可删）。
+// 非预留名称调用本方法视为误用，直接报错（应走 DeleteCert 整行删除）。
+func (s *PersonnelService) ClearReservedCert(certID int) error {
+	var cur struct {
+		CertName string `db:"cert_name"`
+		FileID   *int   `db:"file_id"`
+	}
+	if err := s.DB.Get(&cur, "SELECT cert_name, file_id FROM personnel_certificates WHERE id=?", certID); err != nil {
+		return err
+	}
+	if !models.IsPersonnelReservedCertName(cur.CertName) {
+		return fmt.Errorf("「%s」不是固定预留证件，清空仅适用于固定预留项", cur.CertName)
+	}
+	if cur.FileID != nil {
+		var path string
+		if err := s.DB.Get(&path, "SELECT storage_path FROM uploaded_files WHERE id=?", *cur.FileID); err == nil && path != "" {
+			os.Remove(path)
+		}
+		if _, err := s.DB.Exec("DELETE FROM uploaded_files WHERE id=?", *cur.FileID); err != nil {
+			return err
+		}
+	}
+	_, err := s.DB.Exec(`UPDATE personnel_certificates
+		SET cert_number=NULL, issue_date=NULL, expiry_date=NULL, file_id=NULL, remark=NULL, updated_at=?
+		WHERE id=?`, utils.NowString(), certID)
+	return err
+}
+
 // ---- 证书批量导出（打包下载） ----
 
 // PersonnelScopeItem 是批量导出范围内的一名人员，用于生成"缺证人员名单"。

@@ -121,6 +121,17 @@ func (h *Handler) DeletePersonnelCert(c *gin.Context) {
 	utils.SuccessMsg(c, nil, "删除成功")
 }
 
+// ClearPersonnelCert 清空固定预留证件行（安检证/环保证）的已填信息与已上传附件，
+// 证书行本身保留，回到"待上传"状态。
+func (h *Handler) ClearPersonnelCert(c *gin.Context) {
+	certID, _ := strconv.Atoi(c.Param("certId"))
+	if err := h.PersonnelSvc.ClearReservedCert(certID); err != nil {
+		utils.Fail(c, -1, "清空失败："+err.Error())
+		return
+	}
+	utils.SuccessMsg(c, nil, "清空成功")
+}
+
 // ExportPersonnelCerts 按「所属检测站 × 在职状态」范围，把指定名称的证书原件
 // （安检证/环保证/身份证）打包为 ZIP 下载。
 // 压缩包内按 证书类型/检测站/姓名 分目录归档；范围内未上传该证书的人员
