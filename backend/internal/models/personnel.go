@@ -1,5 +1,20 @@
 package models
 
+// PersonnelReservedCertNames 每位人员固定预留的两个证件名称。
+// 预留行只有固定名称，编号/到期日期/附件等字段留空，由操作者上传证书后手动填写；
+// 名称即锚点：不可删除、不可改名，且同人不可重复添加同名证件。
+var PersonnelReservedCertNames = []string{"安检证", "换保证"}
+
+// IsPersonnelReservedCertName 判断证件名是否为固定预留项。
+func IsPersonnelReservedCertName(name string) bool {
+	for _, n := range PersonnelReservedCertNames {
+		if name == n {
+			return true
+		}
+	}
+	return false
+}
+
 // Count 是前端期望的嵌套 _count 对象
 type Count struct {
 	Certificates int `json:"certificates"`

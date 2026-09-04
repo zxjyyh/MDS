@@ -203,3 +203,60 @@ func TestRelaxEquipmentCertExpiry(t *testing.T) {
 		t.Fatalf("幂等运行后数据异常，期望 2 行，实际 %d", n2)
 	}
 }
+
+// TestSeedPersonnelReservedCerts 验证每位人员固定预留「安检证/换保证」两行的 seed：
+// 1. 无证件的人员补齐 2 行，且名称之外字段为空；
+// 2. 已存在同名证件（用户自己添加过的）不重复插入；
+// 3. 重复执行幂等，不会越补越多。
+func TestSeedPersonnelReservedCerts(t *testing.T) {
+	db := openTestDB(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate 失败: %v", err)
+	}
+
+	db.MustExec(`INSERT INTO personnel (id, name) VALUES (1, '张三')`)
+	db.MustExec(`INSERT INTO personnel (id, name) VALUES (2, '李四')`)
+	// 李四已手工添加过一张「安检证」（历史自由添加场景），seed 不得再造一行
+	db.MustExec(`INSERT INTO personnel_certificates (personnel_id, cert_name, cert_number)
+		VALUES (2, '安检证', 'X-001')`)
+
+	seedPersonnelReservedCerts(db)
+
+	// 每人恰好一行安检证 + 一行换保证
+	for _, pid := range []int{1, 2} {
+		var rows []struct {
+			CertName string `db:"cert_name"`
+			FileID   *int   `db:"file_id"`
+		}
+		if err := db.Select(&rows, `SELECT cert_name, file_id FROM personnel_certificates WHERE personnel_id=?`, pid); err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("人员 %d 期望 2 行预留证件，实际 %d 行", pid, len(rows))
+		}
+		for _, r := range rows {
+			if r.FileID != nil {
+				t.Fatalf("预留行不应带附件，人员 %d 的 %s file_id=%v", pid, r.CertName, *r.FileID)
+			}
+		}
+	}
+
+	// 幂等：重复 seed 不新增
+	seedPersonnelReservedCerts(db)
+	var total int
+	if err := db.Get(&total, `SELECT COUNT(*) FROM personnel_certificates`); err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 {
+		t.Fatalf("seed 不幂等，期望 4 行（2人×2），实际 %d", total)
+	}
+
+	// 李四的「安检证」应仍是原来那条（编号还在），未被覆盖
+	var number *string
+	if err := db.Get(&number, `SELECT cert_number FROM personnel_certificates WHERE personnel_id=2 AND cert_name='安检证'`); err != nil {
+		t.Fatal(err)
+	}
+	if number == nil || *number != "X-001" {
+		t.Fatalf("seed 破坏已有数据，cert_number=%v", number)
+	}
+}

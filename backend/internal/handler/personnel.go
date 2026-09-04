@@ -108,7 +108,7 @@ func (h *Handler) UpdatePersonnelCert(c *gin.Context) {
 func (h *Handler) DeletePersonnelCert(c *gin.Context) {
 	certID, _ := strconv.Atoi(c.Param("certId"))
 	if err := h.PersonnelSvc.DeleteCert(certID); err != nil {
-		utils.Fail(c, -1, "删除失败")
+		utils.Fail(c, -1, "删除失败："+err.Error())
 		return
 	}
 	utils.SuccessMsg(c, nil, "删除成功")

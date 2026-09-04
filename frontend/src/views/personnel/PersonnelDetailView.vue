@@ -191,19 +191,27 @@
               <el-button v-if="authStore.isAdmin" type="primary" size="small" @click="openAddCert">添加证件</el-button>
             </div>
           </template>
-          <el-table :data="sortedCerts" stripe border @row-dblclick="(row: any) => previewCert(row)" @sort-change="onCertSort">
-            <el-table-column prop="certName" label="证件名称" min-width="100" show-overflow-tooltip sortable="custom" />
+          <el-table :data="sortedCerts" stripe border :row-class-name="certRowClass" @row-dblclick="(row: any) => previewCert(row)" @sort-change="onCertSort">
+            <el-table-column prop="certName" label="证件名称" min-width="120" show-overflow-tooltip sortable="custom">
+              <template #default="{ row }">
+                <span>{{ row.certName }}</span>
+                <el-tag v-if="isReservedCertName(row.certName)" type="info" size="small" effect="plain" style="margin-left:6px">固定</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="expiryDate" label="到期日期" width="105" sortable="custom">
-              <template #default="{ row }">{{ row.expiryDate ? formatDate(row.expiryDate) : '长期有效' }}</template>
+              <template #default="{ row }">{{ row.fileId ? (row.expiryDate ? formatDate(row.expiryDate) : '长期有效') : '—' }}</template>
             </el-table-column>
             <el-table-column prop="expiryDate" label="状态" width="85" sortable="custom">
-              <template #default="{ row }"><ExpiryBadge :expiry-date="row.expiryDate" /></template>
+              <template #default="{ row }">
+                <el-tag v-if="!row.fileId" type="info" size="small" effect="light">待上传</el-tag>
+                <ExpiryBadge v-else :expiry-date="row.expiryDate" />
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="195" align="center">
               <template #default="{ row }">
                 <el-button text size="small" type="primary" @click.stop="openEditCert(row)">编辑</el-button>
-                <el-button text size="small" type="primary" @click.stop="previewCert(row)">预览</el-button>
-                <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click.stop="removeCert(row)">删除</el-button>
+                <el-button text size="small" type="primary" :disabled="!row.file" @click.stop="previewCert(row)">预览</el-button>
+                <el-button v-if="authStore.isAdmin && !isReservedCertName(row.certName)" text size="small" type="danger" @click.stop="removeCert(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -215,7 +223,8 @@
     <el-dialog v-model="certDialog" :title="editingCertId ? '编辑证件' : '添加证件'" :width="isMobile ? '94%' : '520px'">
       <el-form ref="certFormRef" :model="certForm" :rules="certRules" label-width="80px">
         <el-form-item label="证件名称" prop="certName">
-          <el-input v-model="certForm.certName" placeholder="如：身份证、学历证书、驾驶证" />
+          <el-input v-model="certForm.certName" :disabled="certNameLocked" placeholder="如：身份证、学历证书、驾驶证" />
+          <div v-if="certNameLocked" class="cert-name-tip">固定预留项，名称不可修改；上传文件并填写编号/到期日期后保存即可</div>
         </el-form-item>
         <el-form-item label="证件编号"><el-input v-model="certForm.certNumber" /></el-form-item>
         <el-form-item label="到期日期">
@@ -344,9 +353,17 @@ async function saveInfo() {
 }
 
 // ===== 证书管理 =====
+// 每位人员固定预留的两个证件（名称即锚点，与后端保持一致；不可改名、不可删除）
+const RESERVED_CERT_NAMES = ['安检证', '换保证'];
+function isReservedCertName(name?: string) {
+  return !!name && RESERVED_CERT_NAMES.includes(name);
+}
+
 const certDialog = ref(false);
 const savingCert = ref(false);
 const editingCertId = ref<number | null>(null);
+// 编辑固定预留项时证书名称锁定（禁用输入）
+const certNameLocked = ref(false);
 const certFormRef = ref<FormInstance>();
 const certForm = reactive<any>({ certName: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' });
 const certPermFlag = ref(false);
@@ -361,8 +378,14 @@ const certSortProp = ref('expiryDate');
 const certSortOrder = ref<'ascending' | 'descending'>('ascending');
 
 const sortedCerts = computed(() => {
-  const list = [...(detail.value?.certificates || [])];
-  list.sort((a: any, b: any) => {
+  const all = detail.value?.certificates || [];
+  // 固定预留项（安检证/换保证）永远置顶、顺序固定
+  const reserved = RESERVED_CERT_NAMES
+    .map((n) => all.find((c: any) => c.certName === n))
+    .filter((c): c is any => !!c);
+  // 其余自由添加的证件按当前排序规则排
+  const rest = all.filter((c: any) => !isReservedCertName(c.certName));
+  rest.sort((a: any, b: any) => {
     let va = a[certSortProp.value];
     let vb = b[certSortProp.value];
     if (va == null) va = '';
@@ -370,7 +393,7 @@ const sortedCerts = computed(() => {
     const cmp = String(va).localeCompare(String(vb), 'zh-CN');
     return certSortOrder.value === 'ascending' ? cmp : -cmp;
   });
-  return list;
+  return [...reserved, ...rest];
 });
 
 function onCertSort({ prop, order }: any) {
@@ -382,12 +405,14 @@ function onCertSort({ prop, order }: any) {
 function openAddCert() {
   editingCertId.value = null;
   certPermFlag.value = false;
+  certNameLocked.value = false;
   Object.assign(certForm, { certName: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' });
   certDialog.value = true;
 }
 
 function openEditCert(row: any) {
   editingCertId.value = row.id;
+  certNameLocked.value = isReservedCertName(row.certName);
   Object.assign(certForm, {
     certName: row.certName, certNumber: row.certNumber || '',
     expiryDate: row.expiryDate ? row.expiryDate.substring(0, 10) : '',
@@ -399,6 +424,12 @@ function openEditCert(row: any) {
 
 async function saveCert() {
   await certFormRef.value?.validate();
+  // 自由添加时拦截：固定预留名称不应重复添加（应去编辑对应行）
+  if (!editingCertId.value && isReservedCertName(certForm.certName)
+    && (detail.value?.certificates || []).some((c: any) => c.certName === certForm.certName)) {
+    ElMessage.warning(`「${certForm.certName}」为固定预留项，已存在于该人员证书列表中，请直接编辑对应行`);
+    return;
+  }
   savingCert.value = true;
   try {
     if (editingCertId.value) {
@@ -411,6 +442,7 @@ async function saveCert() {
     certDialog.value = false;
     editingCertId.value = null;
     certPermFlag.value = false;
+    certNameLocked.value = false;
     Object.assign(certForm, { certName: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' });
     loadData();
   } finally {
@@ -430,8 +462,14 @@ const previewDialog = ref(false);
 const currentFile = ref<any>(null);
 
 function previewCert(row: any) {
+  if (!row.file?.id) return; // 尚未上传文件的预留项没有内容可预览
   currentFile.value = row.file;
   previewDialog.value = true;
+}
+
+// 未上传文件的预留行给浅灰底，视觉上区分"待上传"
+function certRowClass({ row }: any) {
+  return row.fileId ? '' : 'cert-row-pending';
 }
 
 // ===== 工具函数 =====
@@ -456,6 +494,20 @@ onMounted(loadData);
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.cert-name-tip {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+:deep(.cert-row-pending) {
+  background-color: #fafafa;
+}
+:deep(.el-table--striped .el-table__body tr.cert-row-pending.el-table__row--striped td.el-table__cell) {
+  background-color: #f5f5f5;
 }
 
 .photo-upload-row {

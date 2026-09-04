@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/zxjyyh/mds/internal/models"
 )
 
 func AutoMigrate(db *sqlx.DB) error {
@@ -252,8 +254,29 @@ func AutoMigrate(db *sqlx.DB) error {
 	// 预置「资料库」模块的默认分类（公司档案 / 法规标准），幂等。
 	seedDocCategories(db)
 
+	// 预置每位人员的固定预留证件（安检证 / 换保证），幂等。
+	// 仅补插缺项的"空证件行"，用户已存在同名证件时跳过，不重复插入。
+	seedPersonnelReservedCerts(db)
+
 	log.Println("Database migration completed successfully")
 	return nil
+}
+
+// seedPersonnelReservedCerts 为每位人员补齐两个固定预留证件行（安检证 / 换保证）。
+// 预留行只有固定名称，编号/到期日期/附件等字段保持 NULL，等操作者上传证书后再填写。
+// 幂等：仅当该人员不存在同名证件时插入，可随每次启动重复执行。
+func seedPersonnelReservedCerts(db *sqlx.DB) {
+	for _, name := range models.PersonnelReservedCertNames {
+		_, err := db.Exec(`INSERT INTO personnel_certificates (personnel_id, cert_name)
+			SELECT p.id, ? FROM personnel p
+			WHERE NOT EXISTS (
+				SELECT 1 FROM personnel_certificates pc
+				WHERE pc.personnel_id = p.id AND pc.cert_name = ?
+			)`, name, name)
+		if err != nil {
+			log.Printf("WARN: 预置人员预留证件 %q 失败: %v", name, err)
+		}
+	}
 }
 
 // seedDocCategories 幂等预置「资料库」模块的默认分类：

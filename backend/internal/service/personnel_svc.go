@@ -158,9 +158,23 @@ func (s *PersonnelService) Create(data map[string]interface{}, userID int) (*mod
 	}
 	id, _ := res.LastInsertId()
 
+	// 新人员自动补齐两个固定预留证件（安检证/换保证），
+	// 保证任何入口创建的人员打开详情就有固定证书槽位。
+	s.seedReservedCerts(int(id))
+
 	var p models.Personnel
 	s.DB.Get(&p, "SELECT * FROM personnel WHERE id=?", id)
 	return &p, nil
+}
+
+// seedReservedCerts 给指定人员补插固定预留证件行（仅名称，其余字段留空）。
+// 仅应在人员刚创建（确定无任何证件）时调用，无需判重。
+func (s *PersonnelService) seedReservedCerts(personnelID int) {
+	now := utils.NowString()
+	for _, name := range models.PersonnelReservedCertNames {
+		s.DB.Exec(`INSERT INTO personnel_certificates (personnel_id, cert_name, created_at, updated_at)
+			VALUES (?,?,?,?)`, personnelID, name, now, now)
+	}
 }
 
 func (s *PersonnelService) Update(id int, data map[string]interface{}) error {
@@ -210,6 +224,16 @@ func (s *PersonnelService) Delete(id int) error {
 
 func (s *PersonnelService) AddCert(personnelID int, data map[string]interface{}) (*models.PersonnelCertificate, error) {
 	now := utils.NowString()
+	name, _ := data["certName"].(string)
+	if models.IsPersonnelReservedCertName(name) {
+		var count int
+		if err := s.DB.Get(&count, `SELECT COUNT(*) FROM personnel_certificates WHERE personnel_id=? AND cert_name=?`, personnelID, name); err != nil {
+			return nil, err
+		}
+		if count > 0 {
+			return nil, fmt.Errorf("「%s」为固定预留证件，已存在该证书行，请直接点击对应行「编辑」上传", name)
+		}
+	}
 	if data["expiryDate"] == "" {
 		data["expiryDate"] = nil
 	}
@@ -233,6 +257,15 @@ func (s *PersonnelService) AddCert(personnelID int, data map[string]interface{})
 
 func (s *PersonnelService) UpdateCert(certID int, data map[string]interface{}) error {
 	now := utils.NowString()
+	var cur struct {
+		CertName string `db:"cert_name"`
+	}
+	if err := s.DB.Get(&cur, "SELECT cert_name FROM personnel_certificates WHERE id=?", certID); err != nil {
+		return err
+	}
+	if models.IsPersonnelReservedCertName(cur.CertName) {
+		data["certName"] = cur.CertName // 固定预留项：名称不可修改
+	}
 	if data["expiryDate"] == "" {
 		data["expiryDate"] = nil
 	}
@@ -242,15 +275,23 @@ func (s *PersonnelService) UpdateCert(certID int, data map[string]interface{}) e
 }
 
 func (s *PersonnelService) DeleteCert(certID int) error {
-	var fileID *int
-	s.DB.Get(&fileID, "SELECT file_id FROM personnel_certificates WHERE id=?", certID)
-	if fileID != nil {
+	var cur struct {
+		CertName string `db:"cert_name"`
+		FileID   *int   `db:"file_id"`
+	}
+	if err := s.DB.Get(&cur, "SELECT cert_name, file_id FROM personnel_certificates WHERE id=?", certID); err != nil {
+		return err
+	}
+	if models.IsPersonnelReservedCertName(cur.CertName) {
+		return fmt.Errorf("「%s」为固定预留证件，不能删除", cur.CertName)
+	}
+	if cur.FileID != nil {
 		var path string
-		s.DB.Get(&path, "SELECT storage_path FROM uploaded_files WHERE id=?", *fileID)
+		s.DB.Get(&path, "SELECT storage_path FROM uploaded_files WHERE id=?", *cur.FileID)
 		if path != "" {
 			os.Remove(path)
 		}
-		s.DB.Exec("DELETE FROM uploaded_files WHERE id=?", *fileID)
+		s.DB.Exec("DELETE FROM uploaded_files WHERE id=?", *cur.FileID)
 	}
 	_, err := s.DB.Exec("DELETE FROM personnel_certificates WHERE id=?", certID)
 	return err
