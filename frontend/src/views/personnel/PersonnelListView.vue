@@ -18,6 +18,9 @@
       </el-select>
       <el-button type="primary" @click="loadData">查询</el-button>
       <el-button @click="resetQuery">重置</el-button>
+      <el-button v-if="authStore.isAdmin" type="primary" @click="openCertExport">
+        <el-icon style="margin-right:4px"><Download /></el-icon>证书
+      </el-button>
     </div>
 
     <el-table
@@ -124,6 +127,62 @@
         @size-change="loadData"
       />
     </div>
+
+    <!-- 证书批量下载对话框 -->
+    <el-dialog
+      v-model="certExportVisible"
+      title="证书批量下载"
+      :width="isMobile ? '94%' : '600px'"
+      top="12vh"
+      destroy-on-close
+      @open="onCertExportOpen"
+    >
+      <div class="export-block">
+        <div class="export-block-title">
+          <el-icon><Filter /></el-icon>
+          <span>1. 选择下载范围</span>
+        </div>
+        <div class="export-scope-grid">
+          <div class="export-field">
+            <div class="export-field-label">所属检测站</div>
+            <el-select v-model="exportForm.department" placeholder="全部检测站" clearable style="width:100%">
+              <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
+            </el-select>
+          </div>
+          <div class="export-field">
+            <div class="export-field-label">在职状态</div>
+            <el-select v-model="exportForm.status" placeholder="全部状态" clearable style="width:100%">
+              <el-option label="在职" value="active" />
+              <el-option label="离职" value="resigned" />
+            </el-select>
+          </div>
+        </div>
+      </div>
+
+      <div class="export-block">
+        <div class="export-block-title">
+          <el-icon><Download /></el-icon>
+          <span>2. 选择要打包下载的证书</span>
+        </div>
+        <div class="export-action-btns">
+          <el-button
+            v-for="act in exportActions"
+            :key="act.name"
+            :type="act.type"
+            size="large"
+            :loading="exportingCert === act.name"
+            :disabled="exportingCert !== '' && exportingCert !== act.name"
+            @click="downloadCertBatch(act.name)"
+          >
+            <el-icon><component :is="act.icon" /></el-icon>
+            <span>一键下载{{ act.name }}</span>
+          </el-button>
+        </div>
+        <p class="export-tip">
+          将把「{{ exportScopeText }}」范围内所有人员持有的对应证书原件打包为 ZIP 下载；尚未上传该证书的人员会自动列入压缩包内缺证名单，便于跟进补办。
+        </p>
+      </div>
+    </el-dialog>
 
     <!-- 图片放大预览遮罩 -->
     <Teleport to="body">
@@ -277,7 +336,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { personnelApi } from '../../api/personnel';
@@ -433,6 +492,81 @@ async function removeRow(row: any) {
   loadData();
 }
 
+// ===== 证书批量下载 =====
+const certExportVisible = ref(false);
+const exportingCert = ref('');
+const exportForm = reactive({ department: '', status: '' });
+const exportActions: Array<{ name: string; icon: string; type: 'primary' | 'success' | 'warning' }> = [
+  { name: '安检证', icon: 'Document', type: 'primary' },
+  { name: '环保证', icon: 'Files', type: 'success' },
+  { name: '身份证', icon: 'Postcard', type: 'warning' },
+];
+
+const exportScopeText = computed(() => {
+  const dept = exportForm.department || '全部检测站';
+  const st = exportForm.status === 'active' ? '在职' : exportForm.status === 'resigned' ? '离职' : '全部状态';
+  return `${dept} · ${st}`;
+});
+
+function openCertExport() {
+  if (!departments.value.length) loadOptions();
+  // 默认沿用当前列表筛选范围，方便按当前结果批量下载
+  exportForm.department = query.department || '';
+  exportForm.status = query.status || '';
+  certExportVisible.value = true;
+}
+
+// dialog @open 再次同步（用户手动改了列表筛选后重开也能跟上）
+function onCertExportOpen() {
+  exportForm.department = query.department || '';
+  exportForm.status = query.status || '';
+}
+
+function decodeExportFileName(disposition?: string): string {
+  if (!disposition) return '';
+  const utf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8?.[1]) {
+    try { return decodeURIComponent(utf8[1]); } catch { /* 忽略解析失败 */ }
+  }
+  const fallback = disposition.match(/filename="?([^";]+)"?/i);
+  return fallback?.[1] || '';
+}
+
+function triggerFileDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function downloadCertBatch(certName: string) {
+  if (exportingCert.value) return;
+  exportingCert.value = certName;
+  try {
+    const res: any = await personnelApi.exportCerts({
+      department: exportForm.department,
+      status: exportForm.status,
+      certName,
+    });
+    const headers = res.headers || {};
+    const total = Number(headers['x-export-total'] || 0);
+    const skipped = Number(headers['x-export-skipped'] || 0);
+    const filename = decodeExportFileName(headers['content-disposition']) || `${certName}批量下载.zip`;
+    triggerFileDownload(res.data as Blob, filename);
+    let msg = `已打包下载 ${certName} ${total} 份（${exportScopeText.value}）`;
+    if (skipped > 0) msg += `；${skipped} 人未上传，缺证名单已写入压缩包`;
+    ElMessage.success(msg);
+  } catch {
+    // 后端错误已由请求拦截器统一提示
+  } finally {
+    exportingCert.value = '';
+  }
+}
+
 onMounted(() => { loadData(); loadOptions(); });
 </script>
 
@@ -529,5 +663,68 @@ onMounted(() => { loadData(); loadOptions(); });
   background: var(--el-fill-color-light);
   border-radius: 4px;
   margin-top: 8px;
+}
+
+/* 证书批量下载对话框 */
+.export-block {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 14px 16px 16px;
+  margin-bottom: 14px;
+  background: var(--el-fill-color-blank);
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+.export-block-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-bottom: 12px;
+
+  .el-icon {
+    color: var(--el-color-primary);
+    font-size: 16px;
+  }
+}
+.export-scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.export-field-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 6px;
+}
+.export-action-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .el-button {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+    font-weight: 600;
+  }
+}
+.export-tip {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+@media screen and (max-width: 480px) {
+  .export-scope-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

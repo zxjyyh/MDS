@@ -13,4 +13,7 @@ export const personnelApi = {
     request.put(`/personnel/certificates/${certId}`, data),
   removeCert: (certId: number) =>
     request.delete(`/personnel/certificates/${certId}`),
+  // 按范围批量导出证书 ZIP（返回完整响应，data 为 Blob）
+  exportCerts: (params: { department?: string; status?: string; certName: string }) =>
+    request.get('/personnel/certs/export', { params, responseType: 'blob', timeout: 120000 }),
 };

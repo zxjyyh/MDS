@@ -158,7 +158,7 @@ func (s *PersonnelService) Create(data map[string]interface{}, userID int) (*mod
 	}
 	id, _ := res.LastInsertId()
 
-	// 新人员自动补齐两个固定预留证件（安检证/换保证），
+	// 新人员自动补齐两个固定预留证件（安检证/环保证），
 	// 保证任何入口创建的人员打开详情就有固定证书槽位。
 	s.seedReservedCerts(int(id))
 
@@ -295,4 +295,79 @@ func (s *PersonnelService) DeleteCert(certID int) error {
 	}
 	_, err := s.DB.Exec("DELETE FROM personnel_certificates WHERE id=?", certID)
 	return err
+}
+
+// ---- 证书批量导出（打包下载） ----
+
+// PersonnelScopeItem 是批量导出范围内的一名人员，用于生成"缺证人员名单"。
+type PersonnelScopeItem struct {
+	ID         int     `db:"id"`
+	Name       string  `db:"name"`
+	Department *string `db:"department"`
+	Status     string  `db:"status"`
+}
+
+// PersonnelCertExportItem 是批量导出命中的一份证书附件文件。
+type PersonnelCertExportItem struct {
+	PersonnelID  int     `db:"personnel_id"`
+	Name         string  `db:"name"`
+	Department   *string `db:"department"`
+	Status       string  `db:"status"`
+	FileID       int     `db:"file_id"`
+	OriginalName string  `db:"original_name"`
+	StoragePath  string  `db:"storage_path"`
+}
+
+// buildPersonnelWhere 按检测站/在职状态拼 personnel 过滤条件。
+func buildPersonnelWhere(department, status string) (string, []interface{}) {
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	if department != "" {
+		where += " AND p.department = ?"
+		args = append(args, department)
+	}
+	if status != "" {
+		where += " AND p.status = ?"
+		args = append(args, status)
+	}
+	return where, args
+}
+
+// PersonnelByScope 返回按检测站/在职状态过滤的全部人员（含已离职，供缺证统计）。
+func (s *PersonnelService) PersonnelByScope(department, status string) ([]PersonnelScopeItem, error) {
+	where, args := buildPersonnelWhere(department, status)
+	rows := []PersonnelScopeItem{}
+	err := s.DB.Select(&rows, `SELECT p.id, p.name, p.department, p.status FROM personnel p `+where+
+		` ORDER BY p.department IS NULL, p.department, p.name, p.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// CertFilesByScope 返回范围内所有人员持有的指定名称证书的附件文件行。
+// cert_name 白名单由调用方（handler）把关；此处仍参数化查询，杜绝注入。
+func (s *PersonnelService) CertFilesByScope(department, status, certName string) ([]PersonnelCertExportItem, error) {
+	where := "pc.cert_name = ?"
+	args := []interface{}{certName}
+	if department != "" {
+		where += " AND p.department = ?"
+		args = append(args, department)
+	}
+	if status != "" {
+		where += " AND p.status = ?"
+		args = append(args, status)
+	}
+	rows := []PersonnelCertExportItem{}
+	err := s.DB.Select(&rows, `SELECT p.id AS personnel_id, p.name, p.department, p.status,
+			uf.id AS file_id, uf.original_name, uf.storage_path
+		FROM personnel_certificates pc
+		JOIN personnel p ON p.id = pc.personnel_id
+		JOIN uploaded_files uf ON uf.id = pc.file_id
+		WHERE `+where+` AND pc.file_id IS NOT NULL
+		ORDER BY p.department IS NULL, p.department, p.name, p.id, pc.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

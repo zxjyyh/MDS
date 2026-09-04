@@ -354,7 +354,7 @@ async function saveInfo() {
 
 // ===== 证书管理 =====
 // 每位人员固定预留的两个证件（名称即锚点，与后端保持一致；不可改名、不可删除）
-const RESERVED_CERT_NAMES = ['安检证', '换保证'];
+const RESERVED_CERT_NAMES = ['安检证', '环保证'];
 function isReservedCertName(name?: string) {
   return !!name && RESERVED_CERT_NAMES.includes(name);
 }
@@ -379,7 +379,7 @@ const certSortOrder = ref<'ascending' | 'descending'>('ascending');
 
 const sortedCerts = computed(() => {
   const all = detail.value?.certificates || [];
-  // 固定预留项（安检证/换保证）永远置顶、顺序固定
+  // 固定预留项（安检证/环保证）永远置顶、顺序固定
   const reserved = RESERVED_CERT_NAMES
     .map((n) => all.find((c: any) => c.certName === n))
     .filter((c): c is any => !!c);

@@ -22,6 +22,10 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
+    // 文件流请求（blob）：不按 JSON 契约解包，返回完整响应，便于读 headers 与触发浏览器下载
+    if (response.config.responseType === 'blob') {
+      return response;
+    }
     const res = response.data;
     if (res.code === 0) {
       return res;
@@ -38,7 +42,15 @@ request.interceptors.response.use(
         ElMessage.error('登录已过期，请重新登录');
         router.push('/login');
       } else {
-        ElMessage.error(data?.message || `请求错误 (${status})`);
+        // 后端下载接口在出错时也可能返回 application/json 的 Blob（如"没有可打包的文件"）
+        let msg = data?.message || `请求错误 (${status})`;
+        if (data instanceof Blob && data.type.includes('application/json')) {
+          try {
+            const parsed = JSON.parse(await data.text());
+            if (parsed?.message) msg = parsed.message;
+          } catch { /* 保留默认错误文案 */ }
+        }
+        ElMessage.error(msg);
       }
     } else {
       ElMessage.error('网络错误，请检查连接');

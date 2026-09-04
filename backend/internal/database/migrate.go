@@ -254,15 +254,25 @@ func AutoMigrate(db *sqlx.DB) error {
 	// 预置「资料库」模块的默认分类（公司档案 / 法规标准），幂等。
 	seedDocCategories(db)
 
-	// 预置每位人员的固定预留证件（安检证 / 换保证），幂等。
+	// 预置每位人员的固定预留证件（安检证 / 环保证），幂等。
 	// 仅补插缺项的"空证件行"，用户已存在同名证件时跳过，不重复插入。
+	// 先收敛早期"换保证"笔误写入的行，再按统一名称补缺。
+	renameLegacyPersonnelReservedCert(db)
 	seedPersonnelReservedCerts(db)
 
 	log.Println("Database migration completed successfully")
 	return nil
 }
 
-// seedPersonnelReservedCerts 为每位人员补齐两个固定预留证件行（安检证 / 换保证）。
+// 预留证件历史名称笔误修复："换保证" → "环保证"（同音笔误，幂等，每次启动执行）。
+// 早期版本把第二个预留证件误写为"换保证"，统一术语后在此收敛存量行。
+func renameLegacyPersonnelReservedCert(db *sqlx.DB) {
+	if _, err := db.Exec(`UPDATE personnel_certificates SET cert_name = '环保证' WHERE cert_name = '换保证'`); err != nil {
+		log.Printf("WARN: 修正历史预留证件名称(换保证→环保证)失败: %v", err)
+	}
+}
+
+// seedPersonnelReservedCerts 为每位人员补齐两个固定预留证件行（安检证 / 环保证）。
 // 预留行只有固定名称，编号/到期日期/附件等字段保持 NULL，等操作者上传证书后再填写。
 // 幂等：仅当该人员不存在同名证件时插入，可随每次启动重复执行。
 func seedPersonnelReservedCerts(db *sqlx.DB) {

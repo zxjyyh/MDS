@@ -204,7 +204,7 @@ func TestRelaxEquipmentCertExpiry(t *testing.T) {
 	}
 }
 
-// TestSeedPersonnelReservedCerts 验证每位人员固定预留「安检证/换保证」两行的 seed：
+// TestSeedPersonnelReservedCerts 验证每位人员固定预留「安检证/环保证」两行的 seed：
 // 1. 无证件的人员补齐 2 行，且名称之外字段为空；
 // 2. 已存在同名证件（用户自己添加过的）不重复插入；
 // 3. 重复执行幂等，不会越补越多。
@@ -219,10 +219,14 @@ func TestSeedPersonnelReservedCerts(t *testing.T) {
 	// 李四已手工添加过一张「安检证」（历史自由添加场景），seed 不得再造一行
 	db.MustExec(`INSERT INTO personnel_certificates (personnel_id, cert_name, cert_number)
 		VALUES (2, '安检证', 'X-001')`)
+	// 张三曾因笔误存在一张「换保证」，须被收敛为「环保证」而不是再补一张
+	db.MustExec(`INSERT INTO personnel_certificates (personnel_id, cert_name)
+		VALUES (1, '换保证')`)
 
+	renameLegacyPersonnelReservedCert(db)
 	seedPersonnelReservedCerts(db)
 
-	// 每人恰好一行安检证 + 一行换保证
+	// 每人恰好一行安检证 + 一行环保证
 	for _, pid := range []int{1, 2} {
 		var rows []struct {
 			CertName string `db:"cert_name"`
@@ -249,6 +253,15 @@ func TestSeedPersonnelReservedCerts(t *testing.T) {
 	}
 	if total != 4 {
 		t.Fatalf("seed 不幂等，期望 4 行（2人×2），实际 %d", total)
+	}
+
+	// 历史笔误名「换保证」不得残留
+	var legacy int
+	if err := db.Get(&legacy, `SELECT COUNT(*) FROM personnel_certificates WHERE cert_name='换保证'`); err != nil {
+		t.Fatal(err)
+	}
+	if legacy != 0 {
+		t.Fatalf("历史笔误名「换保证」未收敛，仍剩 %d 行", legacy)
 	}
 
 	// 李四的「安检证」应仍是原来那条（编号还在），未被覆盖
