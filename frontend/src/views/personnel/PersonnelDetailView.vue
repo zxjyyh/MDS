@@ -5,7 +5,7 @@
         <el-button text @click="$router.push('/personnel')"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
         <span class="page-title" style="margin-left: 8px">{{ detail?.name }} - 人员详情</span>
       </div>
-      <el-button v-if="authStore.isAdmin" type="primary" :loading="saving" @click="saveInfo">保存</el-button>
+      <el-button type="primary" :loading="saving" @click="saveInfo">保存</el-button>
     </div>
 
     <el-row :gutter="16">
@@ -188,7 +188,7 @@
           <template #header>
             <div class="cert-header">
               <span>证书信息 ({{ detail?.certificates?.length || 0 }})</span>
-              <el-button v-if="authStore.isAdmin" type="primary" size="small" @click="openAddCert">添加证件</el-button>
+              <el-button type="primary" size="small" @click="openAddCert">添加证件</el-button>
             </div>
           </template>
           <el-table :data="sortedCerts" stripe border :row-class-name="certRowClass" @row-dblclick="(row: any) => previewCert(row)" @sort-change="onCertSort">
@@ -212,8 +212,8 @@
                 <el-button text size="small" type="primary" @click.stop="openEditCert(row)">编辑</el-button>
                 <el-button text size="small" type="primary" :disabled="!row.file" @click.stop="previewCert(row)">预览</el-button>
                 <!-- 固定预留项：不可删除，改为「清空」（清掉已填信息与已上传附件，行保留） -->
-                <el-button v-if="authStore.isAdmin && isReservedCertName(row.certName)" text size="small" type="warning" :disabled="!certHasContent(row)" @click.stop="clearCert(row)">清空</el-button>
-                <el-button v-if="authStore.isAdmin && !isReservedCertName(row.certName)" text size="small" type="danger" @click.stop="removeCert(row)">删除</el-button>
+                <el-button v-if="isReservedCertName(row.certName)" text size="small" type="warning" :disabled="!certHasContent(row)" @click.stop="clearCert(row)">清空</el-button>
+                <el-button v-if="!isReservedCertName(row.certName)" text size="small" type="danger" @click.stop="removeCert(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>

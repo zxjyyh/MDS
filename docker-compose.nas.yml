@@ -9,7 +9,7 @@
 #
 # 部署步骤：
 #   1. 在 NAS 上创建目录，例如 /volume1/docker/mds，并进入
-#   2. mkdir -p data uploads logs
+#   2. mkdir -p data uploads logs backups
 #   3. 把本文件放进去（docker-compose.nas.yml）即可，不需要再建 .env
 #   4. docker compose -f docker-compose.nas.yml pull
 #      docker compose -f docker-compose.nas.yml up -d
@@ -40,6 +40,9 @@ services:
       - ./data:/app/data
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      # 数据备份输出目录，见容器内「系统管理 → 数据备份」。
+      # 务必挂出来，否则容器重建时已生成的备份会随镜像层一起丢失。
+      - ./backups:/app/backups
 
     environment:
       # 时区（容器日志、提醒定时任务都依赖它）

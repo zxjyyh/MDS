@@ -43,7 +43,13 @@
           <el-button text size="small" :type="row.status === 'active' ? 'warning' : 'success'" @click="toggleStatus(row)">
             {{ row.status === 'active' ? '禁用' : '启用' }}
           </el-button>
-          <el-button text size="small" type="danger" @click="removeRow(row)" :disabled="row.username === 'admin'">删除</el-button>
+          <el-button
+            text
+            size="small"
+            type="danger"
+            @click="removeRow(row)"
+            :disabled="row.username === 'admin' || row.id === authStore.user?.id"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -55,7 +61,8 @@
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新增用户'" :width="isMobile ? '94%' : '500px'" @close="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" :disabled="editing" />
+          <el-input v-model="form.username" placeholder="登录用的用户名" />
+          <div v-if="editing" class="form-tip">用户名即登录名，改完后需用新用户名登录</div>
         </el-form-item>
         <el-form-item v-if="!editing" label="密码" prop="password">
           <el-input v-model="form.password" type="password" show-password />
@@ -81,8 +88,10 @@
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox, ElMessageBoxOptions, type FormInstance, type FormRules } from 'element-plus';
 import { userApi } from '../../api/user';
+import { useAuthStore } from '../../stores/auth';
 import dayjs from 'dayjs';
 
+const authStore = useAuthStore();
 const list = ref<any[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -130,7 +139,12 @@ async function save() {
   saving.value = true;
   try {
     if (editing.value) {
-      await userApi.update(form.id, { realName: form.realName, email: form.email, role: form.role });
+      await userApi.update(form.id, {
+        username: form.username,
+        realName: form.realName,
+        email: form.email,
+        role: form.role,
+      });
       ElMessage.success('更新成功');
     } else {
       await userApi.create(form);
@@ -166,3 +180,12 @@ async function removeRow(row: any) {
 
 onMounted(loadData);
 </script>
+
+<style scoped lang="scss">
+.form-tip {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+</style>

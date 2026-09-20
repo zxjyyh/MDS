@@ -18,14 +18,17 @@ type Handler struct {
 	Config *config.Config
 	Logger *zap.Logger
 
-	AuthSvc      *service.AuthService
-	UserSvc      *service.UserService
-	PersonnelSvc *service.PersonnelService
-	EquipmentSvc *service.EquipmentService
-	CategorySvc  *service.CategoryService
-	DocumentSvc  *service.DocumentService
-	FileSvc      *service.FileService
-	ReminderSvc  *service.ReminderService
+	AuthSvc         *service.AuthService
+	UserSvc         *service.UserService
+	PersonnelSvc    *service.PersonnelService
+	EquipmentSvc    *service.EquipmentService
+	CompanySvc      *service.CompanyService
+	CategorySvc     *service.CategoryService
+	OperationLogSvc *service.OperationLogService
+	BackupSvc       *service.BackupService
+	DocumentSvc     *service.DocumentService
+	FileSvc         *service.FileService
+	ReminderSvc     *service.ReminderService
 }
 
 func NewHandler(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *Handler {
@@ -34,14 +37,17 @@ func NewHandler(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *Handler {
 		Config: cfg,
 		Logger: log,
 
-		AuthSvc:      &service.AuthService{DB: db},
-		UserSvc:      &service.UserService{DB: db},
-		PersonnelSvc: &service.PersonnelService{DB: db},
-		EquipmentSvc: &service.EquipmentService{DB: db},
-		CategorySvc:  &service.CategoryService{DB: db},
-		DocumentSvc:  &service.DocumentService{DB: db},
-		FileSvc:      &service.FileService{DB: db, UploadDir: cfg.UploadDir, MaxSize: cfg.UploadMax},
-		ReminderSvc:  &service.ReminderService{DB: db},
+		AuthSvc:         &service.AuthService{DB: db},
+		UserSvc:         &service.UserService{DB: db},
+		PersonnelSvc:    &service.PersonnelService{DB: db},
+		EquipmentSvc:    &service.EquipmentService{DB: db},
+		CompanySvc:      &service.CompanyService{DB: db},
+		CategorySvc:     &service.CategoryService{DB: db},
+		OperationLogSvc: &service.OperationLogService{DB: db},
+		BackupSvc:       &service.BackupService{DB: db, Cfg: cfg},
+		DocumentSvc:     &service.DocumentService{DB: db},
+		FileSvc:         &service.FileService{DB: db, UploadDir: cfg.UploadDir, MaxSize: cfg.UploadMax},
+		ReminderSvc:     &service.ReminderService{DB: db},
 	}
 }
 
@@ -62,6 +68,17 @@ func (h *Handler) Login(c *gin.Context) {
 		utils.Fail(c, -1, err.Error())
 		return
 	}
+
+	// 登录成功记一条操作日志：登录请求不经过 Auth 中间件，
+	// 全局 OperationLog 中间件此时拿不到用户身份，只能在这里显式记录。
+	// 登录失败不记，避免把密码爆破尝试混进操作日志。
+	h.OperationLogSvc.Record(service.OperationEntry{
+		UserID:   user.ID,
+		Username: user.Username,
+		Role:     user.Role,
+		Method:   http.MethodPost,
+		Path:     "/api/auth/login",
+	})
 
 	utils.SuccessMsg(c, gin.H{
 		"accessToken":  access,

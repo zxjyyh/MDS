@@ -121,6 +121,21 @@ func AutoMigrate(db *sqlx.DB) error {
 			"updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 
+		// 公司信息（甲方主体资料）：劳动合同、报名材料等对外文书的填充来源。
+		`CREATE TABLE IF NOT EXISTS "companies" (
+			"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+			"name" TEXT NOT NULL,
+			"credit_code" TEXT,
+			"qual_cert_no" TEXT,
+			"qual_cert_expiry" TEXT,
+			"address" TEXT,
+			"phone" TEXT,
+			"bank_account" TEXT,
+			"bank_branch" TEXT,
+			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
+			"updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+
 		`CREATE TABLE IF NOT EXISTS "doc_categories" (
 			"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 			"name" TEXT NOT NULL,
@@ -176,7 +191,11 @@ func AutoMigrate(db *sqlx.DB) error {
 		`CREATE TABLE IF NOT EXISTS "operation_logs" (
 			"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 			"user_id" INTEGER REFERENCES "users"("id"),
+			"username" TEXT,
+			"role" TEXT,
 			"action" TEXT NOT NULL,
+			"method" TEXT,
+			"path" TEXT,
 			"target_type" TEXT,
 			"target_id" INTEGER,
 			"detail" TEXT,
@@ -238,6 +257,16 @@ func AutoMigrate(db *sqlx.DB) error {
 		`ALTER TABLE documents ADD COLUMN legal_person TEXT`,
 		`ALTER TABLE documents ADD COLUMN address TEXT`,
 		`ALTER TABLE documents ADD COLUMN cert_number TEXT`,
+		// 公司信息：公司地址（劳动合同甲方地址自动带出的来源）。
+		// 已建过 companies 表的库必须靠这条 ALTER 补列（CREATE TABLE IF NOT EXISTS 不会补）。
+		`ALTER TABLE companies ADD COLUMN address TEXT`,
+		// 操作日志：补记操作者快照与原始请求。已建过表的库必须靠 ALTER 补列。
+		// username / role 冗余存一份：删用户时 user_svc 会把 user_id 置 NULL 以保留审计记录，
+		// 那时仍需能看出"是谁做的"。
+		`ALTER TABLE operation_logs ADD COLUMN username TEXT`,
+		`ALTER TABLE operation_logs ADD COLUMN role TEXT`,
+		`ALTER TABLE operation_logs ADD COLUMN method TEXT`,
+		`ALTER TABLE operation_logs ADD COLUMN path TEXT`,
 	}
 	for _, stmt := range upgrades {
 		db.Exec(stmt) // ignore error (column may already exist or already renamed)
@@ -393,6 +422,7 @@ var timestampColumns = map[string][]string{
 	"equipment_certificates": {"created_at", "updated_at"},
 	"doc_categories":         {"created_at"},
 	"documents":              {"created_at", "updated_at"},
+	"companies":              {"created_at", "updated_at"},
 	"reminder_rules":         {"created_at", "updated_at"},
 	"reminder_logs":          {"created_at", "sent_at"},
 	"operation_logs":         {"created_at"},

@@ -59,7 +59,7 @@
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ row }">
-            <el-button v-if="authStore.isAdmin" text size="small" type="warning" @click="doIgnore(row)">忽略</el-button>
+            <el-button text size="small" type="warning" @click="doIgnore(row)">忽略</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -98,7 +98,7 @@
           </el-table-column>
           <el-table-column label="操作" width="90" align="center">
             <template #default="{ row }">
-              <el-button v-if="authStore.isAdmin" text size="small" type="primary" @click="doUnignore(row)">取消忽略</el-button>
+              <el-button text size="small" type="primary" @click="doUnignore(row)">取消忽略</el-button>
             </template>
           </el-table-column>
         </el-table>

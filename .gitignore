@@ -38,14 +38,18 @@ frontend/components.d.ts
 data/*
 uploads/*
 logs/*
+backups/*
 !data/.gitkeep
 !uploads/.gitkeep
 !logs/.gitkeep
+!backups/.gitkeep
 
 # 其他层级的运行时目录整体排除（关键：backend/uploads 存放真实业务文件）
 backend/data/
 backend/uploads/
 backend/logs/
+# 数据备份：本地跑后端时默认落在 backend/backups（进程工作目录是 backend/）
+backend/backups/
 # 本地 Windows 构建时把前端产物复制到此目录，属构建产物不应入库
 /backend/web/dist/
 
@@ -60,6 +64,19 @@ backend/logs/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 编辑器/工具产生的备份文件（例如 go build 覆盖 server.exe 时留下的 server.exe~，
+# 它 21MB 且 *.exe 规则匹配不到 "server.exe~"，不加这条会被提交进仓库）
+*~
+
+# ===== 本地临时产物（严禁入库）=====
+# _preview_*：生成的报名材料样例与界面截图，**含真实人员姓名/身份证号/手机号**，
+#             以及内部公司信息。推送到公共仓库等同于泄露个人信息，务必排除。
+# _tmp_*    ：一次性调试脚本（可能硬编码过 JWT 密钥等）
+# _chk*.txt ：本地检查/诊断输出
+_preview_*/
+_tmp_*/
+_chk*.txt
 
 # ===== 工具目录 =====
 .workbuddy/

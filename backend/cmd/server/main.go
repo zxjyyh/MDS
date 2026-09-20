@@ -105,6 +105,9 @@ func main() {
 	reminderSvc := &service.ReminderService{DB: db}
 	scheduler.Start(reminderSvc, log)
 
+	// 数据备份定时检查（开关与间隔是页面上的设置，见 service.BackupService）
+	scheduler.StartBackup(&service.BackupService{DB: db, Cfg: cfg}, log)
+
 	// Setup router
 	r := router.Setup(db, cfg, log)
 

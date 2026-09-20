@@ -1,7 +1,7 @@
 # 内业管理系统 — 本地构建部署
 #
 # 用法（【无需 .env 文件】，所有配置见下方 environment 默认值）：
-#   1. mkdir -p data uploads logs
+#   1. mkdir -p data uploads logs backups
 #   2. docker compose up -d --build
 #
 # 在 NAS 上部署请优先使用 docker-compose.nas.yml：
@@ -29,6 +29,9 @@ services:
       - ./data:/app/data
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      # 数据备份输出目录。必须挂出来：容器的工作目录属于镜像层，
+      # 不挂的话重建容器时已生成的备份会一起丢掉。
+      - ./backups:/app/backups
 
     environment:
       # 时区必须设置：定时提醒按本地时间 08:30 触发，
@@ -42,6 +45,8 @@ services:
       # 可选：显式固定 JWT 密钥。留空则自动生成并持久化到 data/.secrets.env。
       # JWT_SECRET: ${JWT_SECRET:-}
       # JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      # 可选：理工报名材料的「收件人」默认值（留空则不预填）。
+      # LIGONG_DEFAULT_RECEIVER: ${LIGONG_DEFAULT_RECEIVER:-}
       # 可选：SMTP 邮件（也可在系统页面里配）。留空不发送提醒邮件。
       # SMTP_HOST: ${SMTP_HOST:-}
       # SMTP_PORT: ${SMTP_PORT:-465}

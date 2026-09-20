@@ -21,8 +21,13 @@ type Config struct {
 	UploadDir   string
 	UploadMax   int64
 	FrontendDir string
+	BackupDir   string
 	SMTP        SMTPConfig
 	AppURL      string
+	// LigongDefaultReceiver 理工报名材料的「收件人」默认值。
+	// 留空则界面不预填收件人（开源默认，避免把真实姓名写进仓库）；
+	// 私有部署可在 .env 里配 LIGONG_DEFAULT_RECEIVER=姓名 恢复自动带出。
+	LigongDefaultReceiver string
 }
 
 type SMTPConfig struct {
@@ -46,6 +51,9 @@ func Load() *Config {
 	viper.SetDefault("UPLOAD_DIR", "./uploads")
 	viper.SetDefault("UPLOAD_MAX_SIZE", 52428800)
 	viper.SetDefault("FRONTEND_DIR", "./web/dist")
+	// 备份输出目录。docker-compose 里会挂 ./backups:/app/backups，
+	// 不挂的话容器重建后备份文件会随镜像层一起丢掉。
+	viper.SetDefault("BACKUP_DIR", "./backups")
 	viper.SetDefault("APP_URL", "http://localhost:3000")
 
 	// .env 只读：存在就读，不存在就算了，任何情况下都不会由程序写回。
@@ -65,15 +73,17 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:        viper.GetInt("PORT"),
-		Env:         viper.GetString("NODE_ENV"),
-		DBPath:      dbPath,
-		JWTSecret:   jwtSecret,
-		JWTRefresh:  jwtRefresh,
-		UploadDir:   viper.GetString("UPLOAD_DIR"),
-		UploadMax:   viper.GetInt64("UPLOAD_MAX_SIZE"),
-		FrontendDir: viper.GetString("FRONTEND_DIR"),
-		AppURL:      viper.GetString("APP_URL"),
+		Port:                  viper.GetInt("PORT"),
+		Env:                   viper.GetString("NODE_ENV"),
+		DBPath:                dbPath,
+		JWTSecret:             jwtSecret,
+		JWTRefresh:            jwtRefresh,
+		UploadDir:             viper.GetString("UPLOAD_DIR"),
+		UploadMax:             viper.GetInt64("UPLOAD_MAX_SIZE"),
+		FrontendDir:           viper.GetString("FRONTEND_DIR"),
+		BackupDir:             viper.GetString("BACKUP_DIR"),
+		AppURL:                viper.GetString("APP_URL"),
+		LigongDefaultReceiver: strings.TrimSpace(viper.GetString("LIGONG_DEFAULT_RECEIVER")),
 		SMTP: SMTPConfig{
 			Host: viper.GetString("SMTP_HOST"),
 			Port: viper.GetInt("SMTP_PORT"),

@@ -44,6 +44,25 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '设备详情', hidden: true },
       },
       {
+        path: 'materials/personnel',
+        name: 'MaterialsPersonnel',
+        component: () => import('../views/materials/MaterialsPersonnelView.vue'),
+        meta: { title: '人员材料', icon: 'User' },
+      },
+      {
+        path: 'materials/equipment',
+        name: 'MaterialsEquipment',
+        component: () => import('../views/materials/MaterialsEquipmentView.vue'),
+        meta: { title: '设备材料', icon: 'Setting' },
+      },
+      {
+        path: 'company',
+        name: 'CompanyInfo',
+        component: () => import('../views/company/CompanyInfoView.vue'),
+        // 普通用户不显示该模块（菜单已隐藏，路由同步拦一道防手输 URL）
+        meta: { title: '公司信息管理', icon: 'OfficeBuilding', requireAdmin: true },
+      },
+      {
         path: 'archive/company',
         name: 'CompanyArchiveList',
         component: () => import('../views/archive/CompanyArchiveListView.vue'),
@@ -66,6 +85,12 @@ const routes: RouteRecordRaw[] = [
         name: 'LegalStandardDetail',
         component: () => import('../views/archive/ArchiveDocDetailView.vue'),
         meta: { title: '文档详情', hidden: true },
+      },
+      {
+        path: 'archive/ip',
+        name: 'IpInfo',
+        component: () => import('../views/archive/IpInfoView.vue'),
+        meta: { title: 'IP信息', icon: 'Connection' },
       },
       {
         path: 'qualification',
@@ -108,6 +133,18 @@ const routes: RouteRecordRaw[] = [
         name: 'ReminderSettings',
         component: () => import('../views/system/ReminderSettingsView.vue'),
         meta: { title: '提醒设置', icon: 'AlarmClock', requireAdmin: true },
+      },
+      {
+        path: 'system/operation-logs',
+        name: 'OperationLogs',
+        component: () => import('../views/system/OperationLogView.vue'),
+        meta: { title: '操作日志', icon: 'Tickets', requireAdmin: true },
+      },
+      {
+        path: 'system/backup',
+        name: 'Backup',
+        component: () => import('../views/system/BackupView.vue'),
+        meta: { title: '数据备份', icon: 'FolderOpened', requireAdmin: true },
       },
     ],
   },

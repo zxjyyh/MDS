@@ -73,10 +73,21 @@ a {
   overflow-x: auto;
 }
 
-/* ===== 对话框：手机端全宽 ===== */
-.el-dialog {
-  margin: 0 auto !important;
+/* ===== 对话框：全项目统一屏幕居中 =====
+   Element Plus 的 dialog 要做到双向居中，需要满足两个条件：
+   ① 容器 .el-overlay-dialog 是 flex 布局（默认是块级，只水平居中）
+   ② .el-dialog 自身 margin: auto（在 flex 容器里吸收剩余空间实现居中）
+   这里在全局一次性满足这两个条件，因此项目中所有 el-dialog 都会居中显示，
+   无需逐个组件写 align-center（写了也不冲突）；个别对话框若想贴顶展示，
+   可用更高优先级规则单独覆盖。 */
+.el-overlay-dialog {
+  display: flex !important;
 }
+.el-dialog {
+  margin: auto !important;
+}
+/* 内容超高时的兜底：flex + auto margin 在剩余空间为负时会自动退化为顶部对齐，
+   配合 overlay 的 overflow:auto 仍可完整滚动查看，头部不会被裁切 */
 
 /* ===== 移动端适配 (≤768px) ===== */
 @media screen and (max-width: 768px) {
@@ -133,6 +144,10 @@ a {
     width: 94% !important;
     margin-top: 3vh !important;
     max-height: 92vh;
+  }
+  /* align-center 在小屏同样贴顶展示，避免居中过高导致头部被裁 */
+  .el-dialog.is-align-center {
+    margin: 3vh auto !important;
   }
   .el-dialog .el-dialog__body {
     max-height: 70vh;

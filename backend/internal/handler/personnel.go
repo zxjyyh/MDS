@@ -292,3 +292,23 @@ func sanitizeExportName(name string) string {
 	}
 	return name
 }
+
+// PersonnelCertGap 证件查漏：按检测站 / 在职状态 + 证书类型，列出人员的证件状态。
+// department / status / certs 都留空时表示「全部范围 + 全部证书类型」。
+func (h *Handler) PersonnelCertGap(c *gin.Context) {
+	certs := []string{}
+	if raw := strings.TrimSpace(c.Query("certs")); raw != "" {
+		certs = strings.Split(raw, ",")
+	}
+	names, list, summary, err := h.PersonnelSvc.CertGap(c.Query("department"), c.Query("status"), certs)
+	if err != nil {
+		utils.Fail(c, -1, "查询失败："+err.Error())
+		return
+	}
+	utils.Success(c, gin.H{
+		"certNames": names,
+		"list":      list,
+		"summary":   summary,
+		"total":     len(list),
+	})
+}

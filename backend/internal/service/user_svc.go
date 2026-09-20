@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/zxjyyh/mds/internal/models"
 	"github.com/zxjyyh/mds/internal/utils"
@@ -64,10 +65,31 @@ func (s *UserService) Create(data models.User) error {
 	return err
 }
 
-func (s *UserService) Update(id int, realName, email, role string) error {
-	now := utils.NowString()
-	_, err := s.DB.Exec(`UPDATE users SET real_name=?, email=?, role=?, updated_at=? WHERE id=?`,
-		realName, email, role, now, id)
+// Update 修改用户资料。username 是登录名，允许修改（含 admin 账号），
+// 但必须全局唯一 —— 这里先显式查一次，否则会直接撞 users.username 的 UNIQUE 约束，
+// 前端只能看到一句 SQLite 的英文报错。
+func (s *UserService) Update(id int, username, realName, email, role string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return errors.New("用户名不能为空")
+	}
+	var count int
+	if err := s.DB.Get(&count, "SELECT COUNT(*) FROM users WHERE username=? AND id<>?", username, id); err != nil {
+		return err
+	}
+	if count > 0 {
+		return errors.New("用户名已存在")
+	}
+	// email 同样有 UNIQUE 约束，一并给出中文提示（顺手补上，原逻辑缺这一层）
+	if err := s.DB.Get(&count, "SELECT COUNT(*) FROM users WHERE email=? AND id<>?", email, id); err != nil {
+		return err
+	}
+	if count > 0 {
+		return errors.New("邮箱已存在")
+	}
+
+	_, err := s.DB.Exec(`UPDATE users SET username=?, real_name=?, email=?, role=?, updated_at=? WHERE id=?`,
+		username, realName, email, role, utils.NowString(), id)
 	return err
 }
 
@@ -82,15 +104,30 @@ func (s *UserService) Update(id int, realName, email, role string) error {
 //	operation_logs.user_id       可空     → 置 NULL（保留审计记录）
 //	ignored_warnings.ignored_by  NOT NULL → 属个人偏好，直接删除
 func (s *UserService) Delete(id, operatorID int) error {
-	var username string
-	if err := s.DB.Get(&username, "SELECT username FROM users WHERE id=?", id); err != nil {
+	var target struct {
+		Username string `db:"username"`
+		Role     string `db:"role"`
+		Status   string `db:"status"`
+	}
+	if err := s.DB.Get(&target, "SELECT username, role, status FROM users WHERE id=?", id); err != nil {
 		return errors.New("用户不存在")
 	}
-	if username == "admin" {
+	if target.Username == "admin" {
 		return errors.New("不能删除超级管理员")
 	}
 	if id == operatorID {
 		return errors.New("不能删除当前登录的账号")
+	}
+	// 用户名改成别的之后，上面按 "admin" 的判断就失效了，所以再按角色兜一道：
+	// 系统必须始终保留至少一个启用状态的管理员，否则会把自己锁在门外
+	if target.Role == "admin" && target.Status == "active" {
+		var admins int
+		if err := s.DB.Get(&admins, "SELECT COUNT(*) FROM users WHERE role='admin' AND status='active'"); err != nil {
+			return err
+		}
+		if admins <= 1 {
+			return errors.New("系统必须保留至少一个管理员账号")
+		}
 	}
 
 	tx, err := s.DB.Beginx()

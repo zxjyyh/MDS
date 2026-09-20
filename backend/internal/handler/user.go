@@ -70,6 +70,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 func (h *Handler) UpdateUser(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	var body struct {
+		Username string `json:"username"`
 		RealName string `json:"realName"`
 		Email    string `json:"email"`
 		Role     string `json:"role"`
@@ -78,7 +79,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.UserSvc.Update(id, body.RealName, body.Email, body.Role); err != nil {
+	if err := h.UserSvc.Update(id, body.Username, body.RealName, body.Email, body.Role); err != nil {
 		utils.Fail(c, -1, err.Error())
 		return
 	}

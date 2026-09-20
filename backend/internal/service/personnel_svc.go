@@ -5,6 +5,8 @@ import (
 	"github.com/zxjyyh/mds/internal/models"
 	"github.com/zxjyyh/mds/internal/utils"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -400,4 +402,185 @@ func (s *PersonnelService) CertFilesByScope(department, status, certName string)
 		return nil, err
 	}
 	return rows, nil
+}
+
+// ---- 证件查漏 ----
+
+// CertGapCertNames 支持查漏的证件类型，顺序即前端复选框与表格列顺序。
+//
+// 判定口径（2026-09-17 按用户要求调整）：**只看证件上传台账**
+// personnel_certificates，按「证书名称」匹配；不再读 personnel 的基本信息日期列。
+// 该证件名称下没有"有效行"（编号 / 到期日 / 附件任一非空）即视为「未上传」。
+//
+// 为什么要求"有内容"而不是"有行"：安检证 / 环保证 由系统给每人预置了空行，
+// 只按"有行"判断会让这两类永远显示已上传（未上传恒为 0），查漏就失去意义。
+// 实测当前数据里「无附件但有编号/到期日」的行数为 0，故本判据与"有没有传附件"等价。
+var CertGapCertNames = []string{
+	"安检证", "环保证", "查验证", "内审员证", "身份证", "驾驶证", "毕业证", "劳动合同",
+}
+
+func IsCertGapCertName(name string) bool {
+	for _, n := range CertGapCertNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// CertGapItem 某人在某一种证件上的状态。
+// State 取值：normal 正常 / missing 未上传（界面文案） / expired 过期。
+type CertGapItem struct {
+	CertName   string  `json:"certName"`
+	State      string  `json:"state"`
+	ExpiryDate *string `json:"expiryDate"`
+}
+
+// CertGapRow 一名人员及其所选证件的状态。
+type CertGapRow struct {
+	ID         int           `json:"id"`
+	Name       string        `json:"name"`
+	Department *string       `json:"department"`
+	Status     string        `json:"status"`
+	Items      []CertGapItem `json:"items"`
+}
+
+// certGapPerson 查漏只需要人员的基本身份字段，证件状态全部来自证件上传台账。
+type certGapPerson struct {
+	ID         int     `db:"id"`
+	Name       string  `db:"name"`
+	Department *string `db:"department"`
+	Status     string  `db:"status"`
+}
+
+// CertGap 按检测站/在职状态列出人员的指定证件状态。
+// department、status 为空表示不限范围；certNames 为空表示全部支持的证书类型。
+// 返回：归一化后的证书名列表（顺序即列顺序）、逐人结果、三态计数汇总。
+func (s *PersonnelService) CertGap(department, status string, certNames []string) ([]string, []CertGapRow, map[string]int, error) {
+	names := normalizeCertGapNames(certNames)
+	where, args := buildPersonnelWhere(department, status)
+
+	people := []certGapPerson{}
+	err := s.DB.Select(&people, `SELECT p.id, p.name, p.department, p.status
+		FROM personnel p `+where+
+		` ORDER BY p.department IS NULL, p.department, p.name, p.id`, args...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	ledger, err := s.certGapLedger()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	summary := map[string]int{"normal": 0, "missing": 0, "expired": 0}
+	list := make([]CertGapRow, 0, len(people))
+	for _, p := range people {
+		row := CertGapRow{ID: p.ID, Name: p.Name, Department: p.Department, Status: p.Status}
+		for _, name := range names {
+			item := CertGapItem{CertName: name}
+			li := ledger[fmt.Sprintf("%d|%s", p.ID, name)]
+			switch {
+			case li.expiry == "" && li.number == "" && !li.hasFile:
+				item.State = "missing" // 证件上传里没有这个证书名称的有效行 → 未上传
+			case li.expiry == "":
+				item.State = "normal" // 已上传但没填到期日 = 长期有效 / 无需有效期（如毕业证）
+			default:
+				d := li.expiry
+				item.ExpiryDate = &d
+				if certGapExpired(li.expiry) {
+					item.State = "expired"
+				} else {
+					item.State = "normal"
+				}
+			}
+			summary[item.State]++
+			row.Items = append(row.Items, item)
+		}
+		list = append(list, row)
+	}
+	return names, list, summary, nil
+}
+
+// certGapLedgerInfo 某人在某一证件上的「台账登记情况」（来自证件上传）。
+type certGapLedgerInfo struct {
+	expiry  string
+	number  string
+	hasFile bool
+}
+
+// certGapLedger 取出所有支持类型的证件上传台账，按「人员|证件」归并。
+// 同一证件有多行时取更完整的一条：到期日/编号先遇到有值的就用，附件任一存在即为有。
+func (s *PersonnelService) certGapLedger() (map[string]certGapLedgerInfo, error) {
+	type row struct {
+		PersonnelID int     `db:"personnel_id"`
+		CertName    string  `db:"cert_name"`
+		CertNumber  *string `db:"cert_number"`
+		ExpiryDate  *string `db:"expiry_date"`
+		FileID      *int    `db:"file_id"`
+	}
+	inList := strings.TrimSuffix(strings.Repeat("?,", len(CertGapCertNames)), ",")
+	inArgs := make([]interface{}, 0, len(CertGapCertNames))
+	for _, n := range CertGapCertNames {
+		inArgs = append(inArgs, n)
+	}
+	rows := []row{}
+	if err := s.DB.Select(&rows, `SELECT personnel_id, cert_name, cert_number, expiry_date, file_id
+		FROM personnel_certificates WHERE cert_name IN (`+inList+`)`, inArgs...); err != nil {
+		return nil, err
+	}
+	out := make(map[string]certGapLedgerInfo, len(rows))
+	for _, r := range rows {
+		key := fmt.Sprintf("%d|%s", r.PersonnelID, r.CertName)
+		cur := out[key]
+		if v := certGapTrim(r.ExpiryDate); v != "" && cur.expiry == "" {
+			cur.expiry = v
+		}
+		if v := certGapTrim(r.CertNumber); v != "" && cur.number == "" {
+			cur.number = v
+		}
+		if r.FileID != nil {
+			cur.hasFile = true
+		}
+		out[key] = cur
+	}
+	return out, nil
+}
+
+// certGapTrim 取指针字符串并去空格：NULL 与空串在这里统一成 ""。
+func certGapTrim(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
+}
+
+// normalizeCertGapNames 去重、过滤非法名，并按 CertGapCertNames 的固定顺序输出，
+// 这样列顺序稳定（不随前端复选框点击顺序变化）。全为空则视为"全部类型"。
+func normalizeCertGapNames(certNames []string) []string {
+	picked := map[string]bool{}
+	for _, n := range certNames {
+		if IsCertGapCertName(strings.TrimSpace(n)) {
+			picked[strings.TrimSpace(n)] = true
+		}
+	}
+	out := []string{}
+	for _, n := range CertGapCertNames {
+		if picked[n] {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, CertGapCertNames...)
+	}
+	return out
+}
+
+// certGapExpired 复用 utils.ExpiryStatus 的日界判断，保证与前端 ExpiryBadge 一致。
+func certGapExpired(dateStr string) bool {
+	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(dateStr), time.Local)
+	if err != nil {
+		return false // 脏数据解析不了时按未过期处理，避免误报
+	}
+	return utils.ExpiryStatus(&t).Status == "expired"
 }

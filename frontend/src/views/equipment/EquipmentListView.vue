@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <span class="page-title">设备管理</span>
-      <el-button v-if="authStore.isAdmin" type="primary" @click="dialogVisible = true">
+      <el-button type="primary" @click="dialogVisible = true">
         <el-icon><Plus /></el-icon>新增设备
       </el-button>
     </div>
@@ -22,6 +22,9 @@
       </el-select>
       <el-button type="primary" @click="loadData">查询</el-button>
       <el-button @click="resetQuery">重置</el-button>
+      <el-button type="danger" @click="colDialog = true">
+        <el-icon><Setting /></el-icon>展示设置
+      </el-button>
     </div>
 
     <el-table :data="list" v-loading="loading" stripe border
@@ -32,19 +35,19 @@
       @row-dblclick="(row: any) => goDetail(row.id)"
     >
       <el-table-column type="index" label="序号" width="55" align="center" />
-      <el-table-column prop="name" label="设备名称" min-width="140" sortable="custom" />
-      <el-table-column prop="department" label="所属检测站" min-width="130" align="left" sortable="custom" show-overflow-tooltip />
-      <el-table-column prop="line" label="所属检测线" min-width="120" align="center" sortable="custom" show-overflow-tooltip />
-      <el-table-column prop="model" label="设备型号" min-width="120" sortable="custom" show-overflow-tooltip />
-      <el-table-column prop="serialNumber" label="出厂编号" min-width="130" sortable="custom" show-overflow-tooltip />
-      <el-table-column prop="manufacturer" label="厂家" min-width="120" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="状态" width="90" align="center" sortable="custom" prop="status">
+      <el-table-column v-if="isVisible('name')" prop="name" label="设备名称" min-width="140" sortable="custom" />
+      <el-table-column v-if="isVisible('department')" prop="department" label="所属检测站" min-width="130" align="left" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('line')" prop="line" label="所属检测线" min-width="120" align="center" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('model')" prop="model" label="设备型号" min-width="120" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('serialNumber')" prop="serialNumber" label="出厂编号" min-width="130" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('manufacturer')" prop="manufacturer" label="厂家" min-width="120" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('status')" label="状态" width="90" align="center" sortable="custom" prop="status">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="inspectionCertNumber" label="检定证书编号" min-width="140" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="检定有效期" width="115" align="center" sortable="custom" prop="inspectionExpiryDate">
+      <el-table-column v-if="isVisible('inspectionCertNumber')" prop="inspectionCertNumber" label="检定证书编号" min-width="140" sortable="custom" show-overflow-tooltip />
+      <el-table-column v-if="isVisible('inspectionExpiryDate')" label="检定有效期" width="115" align="center" sortable="custom" prop="inspectionExpiryDate">
         <template #default="{ row }">
           <ExpiryBadge v-if="row.inspectionExpiryDate" :expiry-date="row.inspectionExpiryDate" />
           <span v-else>-</span>
@@ -54,7 +57,7 @@
         <template #default="{ row }">
           <div style="display:flex;justify-content:center;gap:2px">
             <el-button size="small" type="primary" plain @click="goDetail(row.id)">详情</el-button>
-            <el-button v-if="authStore.isAdmin" size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
+            <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
           </div>
         </template>
       </el-table-column>
@@ -65,7 +68,7 @@
     </div>
 
     <!-- 新增设备对话框 -->
-    <el-dialog v-model="dialogVisible" title="新增设备" :width="isMobile ? '94%' : '580px'" top="3vh" @close="resetForm">
+    <el-dialog v-model="dialogVisible" title="新增设备" :width="isMobile ? '94%' : '580px'" @close="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="auto" :require-asterisk-position="'right'">
         <el-row :gutter="14">
           <el-col :span="12"><el-form-item label="设备名称" prop="name"><el-input v-model="form.name" /></el-form-item></el-col>
@@ -104,6 +107,14 @@
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 展示设置：勾选列表要展示的字段（按当前账号保存，下次进入自动沿用） -->
+    <ColumnSettingDialog
+      v-model="colDialog"
+      v-model:visible="visibleColumns"
+      :columns="allColumns"
+      @reset="resetColumns"
+    />
   </div>
 </template>
 
@@ -114,9 +125,26 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { equipmentApi } from '../../api/equipment';
 import { useAuthStore } from '../../stores/auth';
 import ExpiryBadge from '../../components/ExpiryBadge.vue';
+import ColumnSettingDialog from '../../components/ColumnSettingDialog.vue';
+import { useColumnSetting, type ColumnDef } from '../../composables/useColumnSetting';
 
 const router = useRouter();
 const authStore = useAuthStore();
+
+// 展示设置：可勾选的列表字段（序号与操作列始终显示，不在此列）
+const allColumns: ColumnDef[] = [
+  { prop: 'name', label: '设备名称' },
+  { prop: 'department', label: '所属检测站' },
+  { prop: 'line', label: '所属检测线' },
+  { prop: 'model', label: '设备型号' },
+  { prop: 'serialNumber', label: '出厂编号' },
+  { prop: 'manufacturer', label: '厂家' },
+  { prop: 'status', label: '状态' },
+  { prop: 'inspectionCertNumber', label: '检定证书编号' },
+  { prop: 'inspectionExpiryDate', label: '检定有效期' },
+];
+const colDialog = ref(false);
+const { visibleColumns, isVisible, resetColumns } = useColumnSetting('equipment', allColumns);
 const isMobile = ref(window.innerWidth <= 768);
 window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 768; });
 const list = ref<any[]>([]);

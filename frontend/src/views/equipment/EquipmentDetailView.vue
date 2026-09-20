@@ -5,7 +5,7 @@
         <el-button text @click="$router.push('/equipment')"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
         <span class="page-title" style="margin-left: 8px">{{ detail?.name }} - 设备详情</span>
       </div>
-      <el-button v-if="authStore.isAdmin" type="primary" :loading="saving" @click="saveInfo">保存</el-button>
+      <el-button type="primary" :loading="saving" @click="saveInfo">保存</el-button>
     </div>
 
     <el-row :gutter="16">
@@ -81,7 +81,7 @@
           <template #header>
             <div class="cert-header">
               <span>证书信息 ({{ detail?.certificates?.length || 0 }})</span>
-              <el-button v-if="authStore.isAdmin" type="primary" size="small" @click="certDialog = true">添加证书</el-button>
+              <el-button type="primary" size="small" @click="openCertDialog()">添加证书</el-button>
             </div>
           </template>
           <el-table :data="sortedCerts" stripe border @row-dblclick="(row: any) => previewCert(row)" @sort-change="onCertSort">
@@ -92,10 +92,11 @@
             <el-table-column prop="expiryDate" label="状态" width="90" sortable="custom">
               <template #default="{ row }"><ExpiryBadge :expiry-date="row.expiryDate" /></template>
             </el-table-column>
-            <el-table-column label="操作" width="110" align="center">
+            <el-table-column label="操作" width="170" align="center">
               <template #default="{ row }">
                 <el-button text size="small" type="primary" @click="previewCert(row)">预览</el-button>
-                <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click="removeCert(row)">删除</el-button>
+                <el-button text size="small" type="primary" @click="openCertDialog(row)">编辑</el-button>
+                <el-button text size="small" type="danger" @click="removeCert(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -103,8 +104,8 @@
       </el-col>
     </el-row>
 
-    <!-- 添加证书对话框 -->
-    <el-dialog v-model="certDialog" title="添加证书" :width="isMobile ? '94%' : '520px'">
+    <!-- 添加 / 编辑证书对话框 -->
+    <el-dialog v-model="certDialog" :title="editingCertId ? '编辑证书' : '添加证书'" :width="isMobile ? '94%' : '520px'" @closed="resetCertForm">
       <el-form ref="certFormRef" :model="certForm" :rules="certRules" label-width="80px">
         <el-form-item label="证书类型" prop="certType">
           <el-input v-model="certForm.certType" placeholder="如：计量检定、校准证书" />
@@ -201,9 +202,35 @@ const certFormRef = ref<FormInstance>();
 const certForm = reactive<any>({ certType: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' });
 const certPermFlag = ref(false);
 function onCertPerm(v: boolean) { if (v) certForm.expiryDate = ''; }
+// 非空表示当前是「编辑证书」，为空表示「添加证书」
+const editingCertId = ref<number | null>(null);
+const emptyCertForm = { certType: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' };
+function resetCertForm() {
+  editingCertId.value = null;
+  Object.assign(certForm, emptyCertForm);
+  certPermFlag.value = false;
+  certFormRef.value?.clearValidate();
+}
+// 传 row 进入编辑（回填已有证书），不传则新增
+function openCertDialog(row?: any) {
+  resetCertForm();
+  if (row) {
+    editingCertId.value = row.id;
+    Object.assign(certForm, {
+      certType: row.certType || '',
+      certNumber: row.certNumber || '',
+      expiryDate: row.expiryDate || '',
+      fileId: row.fileId || 0,
+      remark: row.remark || '',
+    });
+    certPermFlag.value = !row.expiryDate;
+  }
+  certDialog.value = true;
+}
 const certRules: FormRules = {
   certType: [{ required: true, message: '请输入证书类型', trigger: 'blur' }],
-  fileId: [{ required: true, validator: (_r, v, cb) => (v ? cb() : cb(new Error('请上传证书文件'))) }],
+  // 编辑时允许沿用已上传的文件（fileId 已回填），新增时必须上传
+  fileId: [{ validator: (_r, v, cb) => (v || editingCertId.value ? cb() : cb(new Error('请上传证书文件'))) }],
 };
 
 // 证书排序
@@ -230,13 +257,20 @@ function onCertSort({ prop, order }: any) {
 }
 
 async function saveCert() {
-  await certFormRef.value?.validate();
+  const valid = await certFormRef.value?.validate().catch(() => false);
+  if (!valid) return;
   savingCert.value = true;
   try {
-    await equipmentApi.addCert(id, certForm);
-    ElMessage.success('证书添加成功');
+    // fileId 为 0 表示没有文件，必须发 null：发 0 会因外键约束（file_id → uploaded_files.id）失败
+    const payload = { ...certForm, fileId: certForm.fileId || null };
+    if (editingCertId.value) {
+      await equipmentApi.updateCert(editingCertId.value, payload);
+      ElMessage.success('证书修改成功');
+    } else {
+      await equipmentApi.addCert(id, payload);
+      ElMessage.success('证书添加成功');
+    }
     certDialog.value = false;
-    Object.assign(certForm, { certType: '', certNumber: '', expiryDate: '', fileId: 0, remark: '' });
     loadData();
   } finally { savingCert.value = false; }
 }

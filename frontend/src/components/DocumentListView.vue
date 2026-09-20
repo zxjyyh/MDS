@@ -3,10 +3,10 @@
     <div class="page-header">
       <span class="page-title">{{ title }}</span>
       <div class="header-buttons">
-        <el-button v-if="authStore.isAdmin" @click="catDialog = true">
+        <el-button @click="catDialog = true">
           <el-icon><FolderOpened /></el-icon>管理分类
         </el-button>
-        <el-button v-if="authStore.isAdmin" type="primary" @click="openCreate">
+        <el-button type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon>上传文档
         </el-button>
       </div>
@@ -19,7 +19,7 @@
           <CategoryTree
             ref="catTreeRef"
             :system-type="systemType"
-            :show-actions="authStore.isAdmin"
+            :show-actions="true"
             @select="handleSelect"
             @add="addCategory"
             @edit="editCategory"
@@ -86,8 +86,8 @@
       </template>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <el-button v-if="authStore.isAdmin" text size="small" @click="editDoc(row)">编辑</el-button>
-          <el-button v-if="authStore.isAdmin" text size="small" type="danger" @click="removeDoc(row)">删除</el-button>
+          <el-button text size="small" @click="editDoc(row)">编辑</el-button>
+          <el-button text size="small" type="danger" @click="removeDoc(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

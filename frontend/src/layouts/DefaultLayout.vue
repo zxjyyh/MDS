@@ -33,6 +33,24 @@
             <el-icon><Setting /></el-icon>
             <template #title>设备管理</template>
           </el-menu-item>
+          <el-sub-menu index="materials">
+            <template #title>
+              <el-icon><Files /></el-icon>
+              <span>材料生成</span>
+            </template>
+            <el-menu-item index="/materials/personnel">
+              <el-icon><User /></el-icon>
+              <template #title>人员材料</template>
+            </el-menu-item>
+            <el-menu-item index="/materials/equipment">
+              <el-icon><Setting /></el-icon>
+              <template #title>设备材料</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-menu-item v-if="authStore.isAdmin" index="/company">
+            <el-icon><OfficeBuilding /></el-icon>
+            <template #title>公司信息管理</template>
+          </el-menu-item>
           <el-sub-menu index="archive">
             <template #title>
               <el-icon><FolderOpened /></el-icon>
@@ -45,6 +63,10 @@
             <el-menu-item index="/archive/standard">
               <el-icon><Document /></el-icon>
               <template #title>法规标准</template>
+            </el-menu-item>
+            <el-menu-item index="/archive/ip">
+              <el-icon><Connection /></el-icon>
+              <template #title>IP信息</template>
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item index="/qualification">
@@ -71,6 +93,14 @@
             <el-menu-item index="/system/reminder-settings">
               <el-icon><AlarmClock /></el-icon>
               <template #title>提醒设置</template>
+            </el-menu-item>
+            <el-menu-item index="/system/operation-logs">
+              <el-icon><Tickets /></el-icon>
+              <template #title>操作日志</template>
+            </el-menu-item>
+            <el-menu-item index="/system/backup">
+              <el-icon><FolderOpened /></el-icon>
+              <template #title>数据备份</template>
             </el-menu-item>
           </el-sub-menu>
         </el-menu>
@@ -123,6 +153,24 @@
               <el-icon><Setting /></el-icon>
               <template #title>设备管理</template>
             </el-menu-item>
+            <el-sub-menu index="materials">
+              <template #title>
+                <el-icon><Files /></el-icon>
+                <span>材料生成</span>
+              </template>
+              <el-menu-item index="/materials/personnel">
+                <el-icon><User /></el-icon>
+                <template #title>人员材料</template>
+              </el-menu-item>
+              <el-menu-item index="/materials/equipment">
+                <el-icon><Setting /></el-icon>
+                <template #title>设备材料</template>
+              </el-menu-item>
+            </el-sub-menu>
+            <el-menu-item v-if="authStore.isAdmin" index="/company">
+              <el-icon><OfficeBuilding /></el-icon>
+              <template #title>公司信息管理</template>
+            </el-menu-item>
             <el-sub-menu index="archive">
               <template #title>
                 <el-icon><FolderOpened /></el-icon>
@@ -135,6 +183,10 @@
               <el-menu-item index="/archive/standard">
                 <el-icon><Document /></el-icon>
                 <template #title>法规标准</template>
+              </el-menu-item>
+              <el-menu-item index="/archive/ip">
+                <el-icon><Connection /></el-icon>
+                <template #title>IP信息</template>
               </el-menu-item>
             </el-sub-menu>
             <el-menu-item index="/qualification">
@@ -161,6 +213,14 @@
               <el-menu-item index="/system/reminder-settings">
                 <el-icon><AlarmClock /></el-icon>
                 <template #title>提醒设置</template>
+              </el-menu-item>
+              <el-menu-item index="/system/operation-logs">
+                <el-icon><Tickets /></el-icon>
+                <template #title>操作日志</template>
+              </el-menu-item>
+              <el-menu-item index="/system/backup">
+                <el-icon><FolderOpened /></el-icon>
+                <template #title>数据备份</template>
               </el-menu-item>
             </el-sub-menu>
           </el-menu>
@@ -202,9 +262,12 @@
       </el-header>
 
       <el-main class="main-content">
+        <!-- key 用 route.name：不同路由强制生成独立 vnode，避免 <transition mode="out-in">
+             在懒加载（异步）组件首次解析前拿到空 vnode 而跳过 enter，导致内容区空白；
+             同一路由换参数（如 /personnel/1 → /personnel/2）name 不变，不影响原有复用语义 -->
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="route.name || route.path" />
           </transition>
         </router-view>
       </el-main>
