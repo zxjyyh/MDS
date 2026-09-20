@@ -18,10 +18,10 @@ type Document struct {
 	Address           *string `db:"address" json:"address"`
 	CertNumber        *string `db:"cert_number" json:"certNumber"`
 
-	FileID      *int    `db:"file_id" json:"fileId"`
-	CreatedByID *int    `db:"created_by" json:"createdById"`
-	CreatedAt   string  `db:"created_at" json:"createdAt"`
-	UpdatedAt   string  `db:"updated_at" json:"updatedAt"`
+	FileID      *int   `db:"file_id" json:"fileId"`
+	CreatedByID *int   `db:"created_by" json:"createdById"`
+	CreatedAt   string `db:"created_at" json:"createdAt"`
+	UpdatedAt   string `db:"updated_at" json:"updatedAt"`
 
 	// joined
 	Category  *DocCategory  `db:"-" json:"category,omitempty"`
