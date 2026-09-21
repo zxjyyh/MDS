@@ -188,8 +188,15 @@ type Material struct {
 	// CanGenerate 表示「档案里没有可用的上传件时，可由系统生成」——目前只有劳动合同。
 	// 生成时会先看档案里有没有仍在有效期内的上传件：有就直接打包上传的那份，不重复生成。
 	CanGenerate bool `json:"canGenerate"`
-	OnlyDriver  bool `json:"onlyDriver"` // 只有引车员才需要（驾驶证）
+	// OnlyDriver 收集口径与检验岗位有关（驾驶证）：具体收不收由 CertSpec.ResolveMaterial 按证书类型判定。
+	OnlyDriver bool `json:"onlyDriver"`
+	// Optional 表示这份材料「有则随附、无则不附」，缺失时**不计入缺件清单**。
+	// 由 ResolveMaterial 按证书类型决定，不在清单里写死。
+	Optional bool `json:"optional"`
 }
+
+// CertNameDriverLicense 驾驶证的证件名（与人员档案 personnel_certificates.cert_name 一致）。
+const CertNameDriverLicense = "驾驶证"
 
 // CertNameContract personnel_certificates 里「劳动合同」的证件名。
 // 报名时先按这个名字去查档案里有没有可复用的上传件。
@@ -214,6 +221,31 @@ func MaterialsFor(apply string) []Material {
 	// 增项：只要 汇总表 + 安全责任书。
 	// 返回空切片而不是 nil —— 后者序列化成 JSON 的 null，前端拿到 null 还得额外判空。
 	return []Material{}
+}
+
+// ResolveMaterial 决定某人某份材料本次的收集策略。
+//
+// 只有「收集口径与岗位有关」的材料（目前是驾驶证）需要特殊判断，其余一律照收。
+//
+// 驾驶证的两种口径（用户 2026-09-21 确认）：
+//
+//	环保：模板有「准驾车型」列且引车员必填 → **仅引车员**需要附，缺失计入缺件清单
+//	安检：模板没有「准驾车型」列，驾驶证不是必填项 → **档案里有就一并打包**
+//	      （用户反馈：安检报名材料漏打包了驾驶证），非引车员也收；
+//	      缺失时**不计入缺件清单**（optional = true）
+//
+// 引车员在任何证书类型下都必附驾驶证。
+func (s *CertSpec) ResolveMaterial(m Material, p Person) (collect, optional bool) {
+	if !m.OnlyDriver {
+		return true, false
+	}
+	if IsDriver(p.Position) {
+		return true, false
+	}
+	if s.Key == CertEnv {
+		return false, false
+	}
+	return true, true
 }
 
 // ---- 劳动合同可用性判定 ----

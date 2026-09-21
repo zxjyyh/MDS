@@ -240,7 +240,8 @@ func Build(in *BuildInput) (*BuildResult, error) {
 	contractSelf := []string{}        // 本次不出劳动合同、由用户自行打印提供的人
 	for _, p := range in.Persons {
 		for _, m := range MaterialsFor(in.applyTypeOf(p)) {
-			if m.OnlyDriver && !IsDriver(p.Position) {
+			collect, optional := spec.ResolveMaterial(m, p)
+			if !collect {
 				continue
 			}
 			if m.CanGenerate {
@@ -274,7 +275,10 @@ func Build(in *BuildInput) (*BuildResult, error) {
 
 			files := p.Attachments[m.CertName]
 			if len(files) == 0 {
-				missing = append(missing, fmt.Sprintf("%s\t%s", p.Name, m.Name))
+				// 非必填材料（安检的驾驶证）「有则附、无则不附」，不进缺件清单
+				if !optional {
+					missing = append(missing, fmt.Sprintf("%s\t%s", p.Name, m.Name))
+				}
 				continue
 			}
 			for _, f := range files {
@@ -371,7 +375,12 @@ func buildReadme(in *BuildInput, spec *CertSpec, applyCN, dateCN string, rows []
 		case m.CanGenerate:
 			b.WriteString("  " + padLabel("劳动合同/") + "优先复用人员档案里已上传且在有效期内的劳动合同；档案里没有可用件时才由系统生成\n")
 		case m.OnlyDriver:
-			b.WriteString("  " + padLabel(m.Key+"/") + "仅引车员需要\n")
+			// 驾驶证：环保仅引车员必附；安检则是「档案里有就一并打包」的非必填材料
+			if spec.Key == CertEnv {
+				b.WriteString("  " + padLabel(m.Key+"/") + "仅引车员需要\n")
+			} else {
+				b.WriteString("  " + padLabel(m.Key+"/") + "档案里已上传则一并附上（非必填，缺失不计缺件）\n")
+			}
 		default:
 			b.WriteString("  " + padLabel(m.Key+"/") + "取自人员档案已上传的证件原件\n")
 		}

@@ -425,6 +425,56 @@ func TestMixedApplyTypes(t *testing.T) {
 	t.Logf("混报 ZIP: %v", names)
 }
 
+// TestDriverLicenseRule 驾驶证的两套口径（用户 2026-09-21 反馈安检漏打包驾驶证）：
+//
+//	安检：模板没有「准驾车型」列，驾驶证不是必填项 → 档案里有就一并打包，没有也不算缺件
+//	环保：模板有「准驾车型」列且引车员必填 → 仅引车员需要，缺失计入缺件
+func TestDriverLicenseRule(t *testing.T) {
+	// ① 安检基线：谁都没有驾驶证 → 不打包，且不进缺件清单
+	base := sampleIn(CertSecurity)
+	resBase, err := Build(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsSub(zipNames(t, resBase.Data), "驾驶证/") {
+		t.Error("安检：没人有驾驶证时不应出现 驾驶证/ 目录")
+	}
+	for _, m := range resBase.Missing {
+		if strings.Contains(m, "驾驶证") {
+			t.Errorf("安检：驾驶证非必填，不应计入缺件清单，实际缺件 %v", resBase.Missing)
+		}
+	}
+
+	// ② 安检：给「张小明」（机动车检验员，非引车员）补驾驶证 → 应一并打包
+	in := sampleIn(CertSecurity)
+	in.Persons[0].Attachments[CertNameDriverLicense] = []Attachment{
+		{Name: "张小明_驾驶证.jpg", Data: []byte("DRIVER-1")},
+	}
+	res, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSub(zipNames(t, res.Data), "驾驶证/") {
+		t.Errorf("安检：档案里有驾驶证时应一并打包，实际 ZIP %v", zipNames(t, res.Data))
+	}
+	t.Logf("安检 ZIP: %v", zipNames(t, res.Data))
+
+	// ③ 环保口径不变：非引车员即使有驾驶证也不收集
+	inEnv := sampleIn(CertEnv)
+	inEnv.Persons[0].Attachments[CertNameDriverLicense] = []Attachment{
+		{Name: "张小明_驾驶证.jpg", Data: []byte("DRIVER-1")},
+	}
+	resEnv, err := Build(inEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range zipNames(t, resEnv.Data) {
+		if strings.HasPrefix(n, "驾驶证/") && strings.Contains(n, "张小明") {
+			t.Errorf("环保：非引车员不应收集驾驶证，实际 %s", n)
+		}
+	}
+}
+
 // TestApplyAdd 增项：只出汇总表 + 安全责任书，不带任何证件。
 func TestApplyAdd(t *testing.T) {
 	in := sampleIn(CertSecurity)

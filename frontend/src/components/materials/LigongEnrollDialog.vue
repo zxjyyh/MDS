@@ -80,7 +80,9 @@
           <el-tag size="small" type="success" effect="plain">安全责任书</el-tag>
           <el-tag v-for="m in materials" :key="m.key" size="small" type="warning" effect="plain">
             {{ m.name }}
-            <template v-if="m.onlyDriver">（仅引车员）</template>
+            <template v-if="m.onlyDriver">
+              {{ form.certType === 'env' ? '（仅引车员）' : '（有则随附）' }}
+            </template>
             <template v-else-if="m.canGenerate">（优先用档案已上传件）</template>
           </el-tag>
           <span v-if="!picked.length" class="lg-materials-note">
