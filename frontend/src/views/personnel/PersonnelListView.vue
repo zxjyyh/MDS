@@ -213,9 +213,7 @@
           <el-col :span="12">
             <el-form-item label="学历">
               <el-select v-model="form.education" style="width: 100%" clearable>
-                <el-option label="高中/中专" value="高中/中专" />
-                <el-option label="大专" value="大专" />
-                <el-option label="本科及以上" value="本科及以上" />
+                <el-option v-for="e in EDUCATION_OPTIONS" :key="e" :label="e" :value="e" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -305,6 +303,7 @@ import ExpiryBadge from '../../components/ExpiryBadge.vue';
 import ColumnSettingDialog from '../../components/ColumnSettingDialog.vue';
 import CertGapDialog from '../../components/CertGapDialog.vue';
 import { useColumnSetting, type ColumnDef } from '../../composables/useColumnSetting';
+import { EDUCATION_OPTIONS } from '../../utils/constants';
 
 const router = useRouter();
 const authStore = useAuthStore();

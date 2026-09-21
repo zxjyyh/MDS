@@ -273,3 +273,49 @@ func TestSeedPersonnelReservedCerts(t *testing.T) {
 		t.Fatalf("seed 破坏已有数据，cert_number=%v", number)
 	}
 }
+
+// TestNormalizeEducationValues 学历枚举收敛（2026-09-21）：
+// 高中/中专→高中、本科及以上→本科、大专不变、空值保持为空，且幂等。
+func TestNormalizeEducationValues(t *testing.T) {
+	db := openTestDB(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate 失败: %v", err)
+	}
+
+	// 模拟收敛前的存量数据（含空值，空值不应被臆造）
+	db.MustExec(`INSERT INTO personnel (id, name, education) VALUES
+		(1, '甲', '高中/中专'),
+		(2, '乙', '大专'),
+		(3, '丙', '本科及以上'),
+		(4, '丁', '')`)
+
+	normalizeEducationValues(db)
+
+	type row struct {
+		ID        int    `db:"id"`
+		Education string `db:"education"`
+	}
+	rows := []row{}
+	if err := db.Select(&rows, `SELECT id, COALESCE(education,'') AS education FROM personnel ORDER BY id`); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"高中", "大专", "本科", ""}
+	if len(rows) != len(want) {
+		t.Fatalf("人员数期望 %d，实际 %d", len(want), len(rows))
+	}
+	for i, r := range rows {
+		if r.Education != want[i] {
+			t.Errorf("人员 %d 学历期望 %q，实际 %q", r.ID, want[i], r.Education)
+		}
+	}
+
+	// 幂等：重复执行后旧值不应再出现
+	normalizeEducationValues(db)
+	var legacy int
+	if err := db.Get(&legacy, `SELECT COUNT(*) FROM personnel WHERE education IN ('高中/中专','本科及以上')`); err != nil {
+		t.Fatal(err)
+	}
+	if legacy != 0 {
+		t.Fatalf("旧学历值未收敛，仍剩 %d 条", legacy)
+	}
+}

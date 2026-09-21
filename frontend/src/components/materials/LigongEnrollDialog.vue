@@ -160,8 +160,8 @@
           <el-icon><EditPen /></el-icon>
           <span>3. 逐人报名信息</span>
           <span class="lg-limit">
-            请为每人选择「报考类别」；姓名 / 性别 / 身份证号 / 电话 / 学历 自动取自人员档案；
-            「报名岗位」等信息按 {{ certLabel }} 填表要求补录
+            请为每人选择「报考类别」；姓名 / 性别 / 身份证号 / 电话 / 学历 优先自动取自人员档案，
+            档案里缺学历时需手工选择；「报名岗位」等信息按 {{ certLabel }} 填表要求补录
           </span>
         </div>
         <el-table :data="picked" size="small" border class="lg-table">
@@ -271,7 +271,6 @@ const options = reactive<{
   lineTypes: string[];
   educations: string[];
   certExpiryFields: Record<string, string>;
-  defaultEducation: string;
   defaultLineType: string;
   defaultReceiver: string;
 }>({
@@ -281,7 +280,6 @@ const options = reactive<{
   lineTypes: [],
   educations: [],
   certExpiryFields: {},
-  defaultEducation: '高中',
   defaultLineType: '汽车检测线',
   defaultReceiver: '',
 });
@@ -378,7 +376,8 @@ function removePick(id: number) {
 }
 /**
  * 按人员档案 / 约定默认值补齐「学历 / 检测线类别 / 准驾车型 / 证书有效期」：
- * - 学历：档案有就用档案；查不到用后端给的默认值（高中）—— 不臆造其他学历
+ * - 学历：档案有就带出来；档案里没录则**留空**，由用户在表格里手工选择。
+ *   不再兜底成某个默认学历 —— 报名表上的学历必须是真的（用户 2026-09-21 要求）
  * - 检测线类别：环保默认「汽车检测线」（摩托车线是少数，由用户主动改选）。
  *   该字段只有环保用，且取值与证书类型无关，所以**不随证书类型切换而清空**
  * - 准驾车型：取人员档案里的驾驶证字段（只有引车员用得上）。**这里必须一并重填**，
@@ -391,7 +390,7 @@ function removePick(id: number) {
  */
 function applyDefaults(row: any, reset = false) {
   const src = row._src || {};
-  if (!row.education) row.education = src.education || options.defaultEducation || '';
+  if (!row.education) row.education = src.education || '';
 
   if (form.certType === 'env' && !row.lineType) {
     row.lineType = options.defaultLineType || '汽车检测线';
@@ -473,7 +472,6 @@ async function loadOptions() {
     options.lineTypes = d.lineTypes || [];
     options.educations = d.educations || [];
     options.certExpiryFields = d.certExpiryFields || {};
-    options.defaultEducation = d.defaultEducation || '高中';
     options.defaultLineType = d.defaultLineType || '汽车检测线';
     options.defaultReceiver = d.defaultReceiver || '';
     // 收件人默认值来自部署配置（异步返回），首次打开时若还没填过就补上并带出电话
@@ -568,6 +566,10 @@ function validate(): string {
   // （档案里已有可用上传件时不需要，见 resolveContractDecision）
   for (let i = 0; i < picked.value.length; i += 1) {
     const r = picked.value[i];
+    // 学历不再兜底默认值：档案里没录就必须手工选，避免把臆造的学历填进官方报名表
+    if (!r.education) {
+      return `「${r.name}」缺学历：人员档案里没有学历，请手工选择`;
+    }
     if (!r.applyType) return `请为「${r.name}」选择报考类别`;
     if (!r.phone) return `「${r.name}」未填写联系电话，请先完善人员档案`;
     if (!r.position) return `请为「${r.name}」选择报名岗位`;

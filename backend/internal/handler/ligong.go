@@ -312,14 +312,18 @@ func (h *Handler) GenerateLigongEnroll(c *gin.Context) {
 			driveType = ""
 		}
 
-		// 学历：界面上填的优先，其次取人员档案；两边都没有时按约定默认「高中」
-		// （用户 2026-09-20 确认：查不到学历就填高中，保证汇总表不留空）
+		// 学历：界面上填的优先，其次取人员档案。
+		// 两边都没有时**直接报错**，不再兜底成某个默认学历 ——
+		// 报名表上的学历必须真实，臆造一个值会把错误信息带进官方材料
+		// （用户 2026-09-21 要求：取不到就让人手工填）
 		education := strings.TrimSpace(pr.Education)
 		if education == "" {
 			education = strPtrVal(p.Education)
 		}
 		if education == "" {
-			education = ligong.DefaultEducation
+			utils.FailStatus(c, 400, -1, fmt.Sprintf(
+				"「%s」在人员档案里没有学历，请手工选择学历", name))
+			return
 		}
 
 		// 证书有效期：只在「继续教育」时有意义（模板填表说明要求继续教育人员在备注栏填证书有效日期）。

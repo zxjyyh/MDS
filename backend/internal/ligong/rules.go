@@ -322,7 +322,8 @@ var lineTypeOptions = []string{"汽车检测线", "摩托车检测线"}
 // （用户 2026-09-20 要求）。需要摩托车线时在界面上改选即可。
 const DefaultLineType = "汽车检测线"
 
-var educationOptions = []string{"初中", "高中", "中专", "大专", "本科", "硕士", "博士"}
+// educationOptions 学历取值（2026-09-21 收敛为四项，与人员档案的下拉保持一致）。
+var educationOptions = []string{"中专", "高中", "大专", "本科"}
 
 // Options 界面所需的全部下拉选项。
 type Options struct {
@@ -335,8 +336,6 @@ type Options struct {
 	// CertExpiryFields：证书类型 -> 人员档案里「证书到期时间」的字段名，
 	// 前端用它把「证书有效期」自动带出来（环保取环保证到期时间）
 	CertExpiryFields map[string]string `json:"certExpiryFields"`
-	// DefaultEducation 学历查不到时填报的默认值（用户 2026-09-20 确认：高中）
-	DefaultEducation string `json:"defaultEducation"`
 	// DefaultLineType 环保「检测线类别」的默认值（汽车检测线）
 	DefaultLineType string `json:"defaultLineType"`
 	// DefaultReceiver 收件人的默认值。由部署配置 LIGONG_DEFAULT_RECEIVER 决定，
@@ -371,11 +370,7 @@ func BuildOptions(defaultReceiver string) *Options {
 			ApplyAdd:   MaterialsFor(ApplyAdd),
 		},
 		CertExpiryFields: certExpiryFields,
-		DefaultEducation: DefaultEducation,
 		DefaultLineType:  DefaultLineType,
 		DefaultReceiver:  strings.TrimSpace(defaultReceiver),
 	}
 }
-
-// DefaultEducation 学历在人员档案里查不到时填报的值（用户 2026-09-20 确认）。
-const DefaultEducation = "高中"

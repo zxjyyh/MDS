@@ -289,6 +289,9 @@ func AutoMigrate(db *sqlx.DB) error {
 	renameLegacyPersonnelReservedCert(db)
 	seedPersonnelReservedCerts(db)
 
+	// 学历枚举收敛为「中专 / 高中 / 大专 / 本科」四档，幂等。
+	normalizeEducationValues(db)
+
 	log.Println("Database migration completed successfully")
 	return nil
 }
@@ -298,6 +301,34 @@ func AutoMigrate(db *sqlx.DB) error {
 func renameLegacyPersonnelReservedCert(db *sqlx.DB) {
 	if _, err := db.Exec(`UPDATE personnel_certificates SET cert_name = '环保证' WHERE cert_name = '换保证'`); err != nil {
 		log.Printf("WARN: 修正历史预留证件名称(换保证→环保证)失败: %v", err)
+	}
+}
+
+// 学历枚举收敛（2026-09-21，幂等，每次启动执行）。
+//
+// 学历原先只有三档「高中/中专」「大专」「本科及以上」，现改为四档
+// 「中专」「高中」「大专」「本科」，前两档语义重复（高中与中专混在一格里），
+// 且「本科及以上」无法区分本科/硕士。存量按下列规则收敛：
+//
+//	高中/中专  → 高中
+//	大专       → 大专（不变）
+//	本科及以上 → 本科
+//
+// 收敛后不再有匹配行，重复执行无副作用。
+// 空值保持为空：理工报名时会要求手工选择，不在这里臆造。
+func normalizeEducationValues(db *sqlx.DB) {
+	for _, m := range []struct{ from, to string }{
+		{"高中/中专", "高中"},
+		{"本科及以上", "本科"},
+	} {
+		res, err := db.Exec(`UPDATE personnel SET education = ? WHERE education = ?`, m.to, m.from)
+		if err != nil {
+			log.Printf("WARN: 学历枚举收敛(%s→%s)失败: %v", m.from, m.to, err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			log.Printf("学历枚举收敛：%s → %s，影响 %d 条", m.from, m.to, n)
+		}
 	}
 }
 
