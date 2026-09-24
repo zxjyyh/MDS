@@ -108,6 +108,14 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
+      <!-- 安检岗位（默认隐藏，需在「展示设置」里勾选） -->
+      <el-table-column v-if="isVisible('securityPositions')" label="安检岗位" min-width="150" align="left" prop="securityPositions" sortable="custom" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.securityPositions || '-' }}</template>
+      </el-table-column>
+      <!-- 环保岗位（默认隐藏，需在「展示设置」里勾选） -->
+      <el-table-column v-if="isVisible('envPositions')" label="环保岗位" min-width="150" align="left" prop="envPositions" sortable="custom" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.envPositions || '-' }}</template>
+      </el-table-column>
       <!-- 操作 -->
       <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
@@ -124,7 +132,7 @@
         v-model:current-page="query.page"
         v-model:page-size="query.pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
+        :page-sizes="[20, 50, 100]"
         layout="total, sizes, prev, pager, next"
         @current-change="loadData"
         @size-change="loadData"
@@ -172,8 +180,8 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="性别">
-              <el-select v-model="form.gender" style="width: 100%">
+            <el-form-item label="性别" prop="gender">
+              <el-select v-model="form.gender" placeholder="请选择" style="width: 100%">
                 <el-option label="男" value="male" />
                 <el-option label="女" value="female" />
                 <el-option label="未知" value="unknown" />
@@ -251,16 +259,42 @@
           </el-col>
         </el-row>
         <el-form-item label="安检证">
-          <el-row :gutter="10" style="width:100%">
-            <el-col :span="10"><el-input v-model="form.securityCertNumber" placeholder="编号" /></el-col>
-            <el-col :span="14"><el-date-picker v-model="form.securityCertDate" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="到期时间" /></el-col>
-          </el-row>
+          <div style="width:100%">
+            <el-row :gutter="10">
+              <el-col :span="10"><el-input v-model="form.securityCertNumber" placeholder="编号" /></el-col>
+              <el-col :span="14"><el-date-picker v-model="form.securityCertDate" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="到期时间" /></el-col>
+            </el-row>
+            <el-select
+              v-model="form.securityPositions"
+              multiple
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="安检岗位（非必选，可多选）"
+              style="width:100%;margin-top:6px"
+            >
+              <el-option v-for="p in SECURITY_POSITION_OPTIONS" :key="p" :label="p" :value="p" />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="环保证">
-          <el-row :gutter="10" style="width:100%">
-            <el-col :span="10"><el-input v-model="form.envCertNumber" placeholder="编号" /></el-col>
-            <el-col :span="14"><el-date-picker v-model="form.envCertDate" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="到期时间" /></el-col>
-          </el-row>
+          <div style="width:100%">
+            <el-row :gutter="10">
+              <el-col :span="10"><el-input v-model="form.envCertNumber" placeholder="编号" /></el-col>
+              <el-col :span="14"><el-date-picker v-model="form.envCertDate" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="到期时间" /></el-col>
+            </el-row>
+            <el-select
+              v-model="form.envPositions"
+              multiple
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="环保岗位（非必选，可多选）"
+              style="width:100%;margin-top:6px"
+            >
+              <el-option v-for="p in ENV_POSITION_OPTIONS" :key="p" :label="p" :value="p" />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="查验证">
           <el-row :gutter="10" style="width:100%">
@@ -303,7 +337,12 @@ import ExpiryBadge from '../../components/ExpiryBadge.vue';
 import ColumnSettingDialog from '../../components/ColumnSettingDialog.vue';
 import CertGapDialog from '../../components/CertGapDialog.vue';
 import { useColumnSetting, type ColumnDef } from '../../composables/useColumnSetting';
-import { EDUCATION_OPTIONS } from '../../utils/constants';
+import {
+  EDUCATION_OPTIONS,
+  SECURITY_POSITION_OPTIONS,
+  ENV_POSITION_OPTIONS,
+  joinMultiSelect,
+} from '../../utils/constants';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -321,6 +360,10 @@ const allColumns: ColumnDef[] = [
   { prop: 'securityCertDate', label: '安检有效期' },
   { prop: 'envCertDate', label: '环保有效期' },
   { prop: 'inspectionDate', label: '查验有效期' },
+  // 岗位类字段默认不显示：它们只在"排班/报名时看谁适合干什么"的场景才有用，
+  // 日常看人员列表时只会占宽度。需要的人自己去「展示设置」勾上。
+  { prop: 'securityPositions', label: '安检岗位', defaultHidden: true },
+  { prop: 'envPositions', label: '环保岗位', defaultHidden: true },
 ];
 const colDialog = ref(false);
 // 证件查漏弹窗
@@ -332,7 +375,8 @@ window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 
 const list = ref<any[]>([]);
 const loading = ref(false);
 const total = ref(0);
-const query = reactive({ page: 1, pageSize: 20, keyword: '', department: '', status: '' });
+// 默认一页 100 条：本机构人员规模在几十人量级，20 条会导致频繁翻页（用户 2026-09-22 要求）
+const query = reactive({ page: 1, pageSize: 100, keyword: '', department: '', status: '' });
 
 // 检测站筛选选项
 const departments = ref<string[]>([]);
@@ -384,15 +428,20 @@ const dialogVisible = ref(false);
 const saving = ref(false);
 const formRef = ref<FormInstance>();
 const form = reactive<any>({
-  name: '', gender: 'unknown', idCard: '', phone: '', department: '', address: '', position: '',
+  // gender 刻意留空而不是默认 'unknown'：它现在是必选项，
+  // 若给个"合法默认值"，校验会静默通过、使用者永远注意不到自己没选（用户 2026-09-24 要求）
+  name: '', gender: '', idCard: '', phone: '', department: '', address: '', position: '',
   entryDate: '', education: '', school: '', major: '', driverLicense: '',
   driverLicenseExpiry: '', idCardExpiry: '', graduationDate: '',
   securityCertDate: '', envCertDate: '', inspectionDate: '',
   securityCertNumber: '', envCertNumber: '', inspectionCertNumber: '',
+  // 岗位是多选，表单里保持数组；提交时用 joinMultiSelect 转成逗号分隔字符串
+  securityPositions: [], envPositions: [],
   status: 'active', remark: '', photoFileId: 0,
 });
 const rules: FormRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  gender: [{ required: true, message: '请选择性别', trigger: 'change' }],
 };
 
 function openCreate() {
@@ -440,11 +489,12 @@ function goDetail(id: number) {
 
 function resetForm() {
   Object.assign(form, {
-    id: undefined, name: '', gender: 'unknown', idCard: '', phone: '',
+    id: undefined, name: '', gender: '', idCard: '', phone: '',
     department: '', address: '', position: '', entryDate: '', education: '', school: '', major: '', driverLicense: '',
     driverLicenseExpiry: '', idCardExpiry: '', graduationDate: '',
     securityCertDate: '', envCertDate: '', inspectionDate: '',
     securityCertNumber: '', envCertNumber: '', inspectionCertNumber: '',
+    securityPositions: [], envPositions: [],
     status: 'active', remark: '', photoFileId: 0,
   });
 }
@@ -453,7 +503,11 @@ async function save() {
   await formRef.value?.validate();
   saving.value = true;
   try {
-    const payload = { ...form };
+    const payload: any = {
+      ...form,
+      securityPositions: joinMultiSelect(form.securityPositions),
+      envPositions: joinMultiSelect(form.envPositions),
+    };
     if (!payload.photoFileId) delete payload.photoFileId;
     await personnelApi.create(payload);
     ElMessage.success('创建成功');

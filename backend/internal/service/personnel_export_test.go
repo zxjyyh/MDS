@@ -7,6 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/zxjyyh/mds/internal/database"
+	"github.com/zxjyyh/mds/internal/scope"
 )
 
 // openExportTestDB 建一个干净库并完成迁移，供导出查询回归测试使用。
@@ -56,7 +57,7 @@ func TestPersonnelByScope(t *testing.T) {
 	seedExportFixture(t, db)
 	svc := &PersonnelService{DB: db}
 
-	got, err := svc.PersonnelByScope("红星站", "active")
+	got, err := svc.PersonnelByScope(scope.All(), "红星站", "active")
 	if err != nil {
 		t.Fatalf("PersonnelByScope 失败: %v", err)
 	}
@@ -68,7 +69,7 @@ func TestPersonnelByScope(t *testing.T) {
 	}
 
 	// 空条件 = 全部人员
-	all, err := svc.PersonnelByScope("", "")
+	all, err := svc.PersonnelByScope(scope.All(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestCertFilesByScope(t *testing.T) {
 	svc := &PersonnelService{DB: db}
 
 	// 按范围 + 证书名
-	got, err := svc.CertFilesByScope("红星站", "active", "安检证")
+	got, err := svc.CertFilesByScope(scope.All(), "红星站", "active", "安检证")
 	if err != nil {
 		t.Fatalf("CertFilesByScope 失败: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestCertFilesByScope(t *testing.T) {
 	}
 
 	// 仅证书名（不限范围）：3 个有安检证文件的人都在，赵四缺证不出现在文件列表
-	byCert, err := svc.CertFilesByScope("", "", "安检证")
+	byCert, err := svc.CertFilesByScope(scope.All(), "", "", "安检证")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestCertFilesByScope(t *testing.T) {
 	}
 
 	// 身份证只命中张一
-	idFiles, err := svc.CertFilesByScope("", "", "身份证")
+	idFiles, err := svc.CertFilesByScope(scope.All(), "", "", "身份证")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestCertFilesByScope(t *testing.T) {
 	}
 
 	// 范围外证书名不返回任何行（安全边界）
-	none, err := svc.CertFilesByScope("白水站", "active", "环保证")
+	none, err := svc.CertFilesByScope(scope.All(), "白水站", "active", "环保证")
 	if err != nil {
 		t.Fatal(err)
 	}

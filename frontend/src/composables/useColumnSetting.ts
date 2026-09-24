@@ -5,6 +5,14 @@ import { useAuthStore } from '../stores/auth';
 export interface ColumnDef {
   prop: string;
   label: string;
+  /**
+   * 默认不显示，需要用户在「展示设置」里手动勾选才会出现。
+   *
+   * 用于"字段已存在但多数人列表里并不想看"的列（如人员的安检岗位/环保岗位、
+   * 设备的检定单位/检定费用）。标记后：新用户打开时不带这些列，
+   * 老用户 localStorage 里已有自己的选择也不会被自动打开 —— 两种情况都符合预期。
+   */
+  defaultHidden?: boolean;
 }
 
 /**
@@ -16,13 +24,14 @@ export interface ColumnDef {
  */
 export function useColumnSetting(key: string, allColumns: ColumnDef[]) {
   const authStore = useAuthStore();
-  const allProps = () => allColumns.map((c) => c.prop);
+  /** 默认可见集合＝全部字段减去标了 defaultHidden 的 */
+  const defaultProps = () => allColumns.filter((c) => !c.defaultHidden).map((c) => c.prop);
   const storageKey = () => `mds:columns:${key}:${authStore.user?.username || 'anonymous'}`;
 
-  const visibleColumns = ref<string[]>(allProps());
+  const visibleColumns = ref<string[]>(defaultProps());
 
   function load() {
-    const fallback = allProps();
+    const fallback = defaultProps();
     try {
       const raw = localStorage.getItem(storageKey());
       const saved = raw ? JSON.parse(raw) : null;
@@ -54,9 +63,9 @@ export function useColumnSetting(key: string, allColumns: ColumnDef[]) {
     return visibleColumns.value.includes(prop);
   }
 
-  /** 恢复默认：全部字段都显示 */
+  /** 恢复默认：回到「全部字段减去 defaultHidden」的初始状态（不是全选） */
   function resetColumns() {
-    visibleColumns.value = allProps();
+    visibleColumns.value = defaultProps();
   }
 
   return { visibleColumns, isVisible, resetColumns };

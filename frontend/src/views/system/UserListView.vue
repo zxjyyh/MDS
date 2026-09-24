@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <span class="page-title">用户管理</span>
-      <el-button type="primary" @click="dialogVisible = true"><el-icon><Plus /></el-icon>新增用户</el-button>
+      <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon>新增用户</el-button>
     </div>
 
     <div class="search-bar">
@@ -24,6 +24,22 @@
           <el-tag :type="row.role === 'admin' ? 'danger' : 'info'" size="small">
             {{ row.role === 'admin' ? '管理员' : '普通用户' }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="公司权限" min-width="220">
+        <template #default="{ row }">
+          <span v-if="row.role === 'admin'" class="cell-muted">全部（管理员不受限）</span>
+          <template v-else-if="row.companies && row.companies.length">
+            <el-tag
+              v-for="c in row.companies"
+              :key="c"
+              size="small"
+              type="warning"
+              effect="plain"
+              class="company-tag"
+            >{{ c }}</el-tag>
+          </template>
+          <el-tag v-else size="small" type="info" effect="plain">未配置（可访问全部）</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="80">
@@ -75,6 +91,23 @@
             <el-option label="普通用户" value="user" />
           </el-select>
         </el-form-item>
+        <el-form-item label="公司权限">
+          <el-select
+            v-model="form.companies"
+            multiple
+            filterable
+            clearable
+            :disabled="form.role === 'admin'"
+            :placeholder="form.role === 'admin' ? '管理员不受限' : '不选 = 可访问全部公司'"
+            style="width: 100%"
+          >
+            <el-option v-for="n in companyNames" :key="n" :label="n" :value="n" />
+          </el-select>
+          <div class="form-tip">
+            只允许该账号访问所选公司的数据（人员、设备等）。<br />
+            <b>不选任何公司 = 不受限</b>，与改造前行为一致；<b>管理员始终不受限</b>。
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -88,6 +121,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox, ElMessageBoxOptions, type FormInstance, type FormRules } from 'element-plus';
 import { userApi } from '../../api/user';
+import { companyApi } from '../../api/company';
 import { useAuthStore } from '../../stores/auth';
 import dayjs from 'dayjs';
 
@@ -103,7 +137,7 @@ const dialogVisible = ref(false);
 const editing = ref(false);
 const saving = ref(false);
 const formRef = ref<FormInstance>();
-const form = reactive<any>({ username: '', password: '', realName: '', email: '', role: 'user' });
+const form = reactive<any>({ username: '', password: '', realName: '', email: '', role: 'user', companies: [] });
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }, { min: 2, message: '至少2位', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }, { min: 6, message: '至少6位', trigger: 'blur' }],
@@ -111,6 +145,18 @@ const rules: FormRules = {
   email: [{ required: true, message: '请输入邮箱', trigger: 'blur' }, { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }],
 };
+
+// 公司权限多选的候选：公司档案 ∪ 人员/设备里实际出现过的检测站（去重）
+const companyNames = ref<string[]>([]);
+async function loadCompanyNames() {
+  if (companyNames.value.length) return;
+  try {
+    const res: any = await companyApi.names();
+    companyNames.value = res.data?.names || [];
+  } catch {
+    /* 加载失败不阻断用户管理，选项为空时仍可保存（等于清空权限） */
+  }
+}
 
 function formatDateTime(d: string) { return dayjs(d).format('YYYY-MM-DD HH:mm'); }
 
@@ -125,29 +171,39 @@ async function loadData() {
 
 function editRow(row: any) {
   editing.value = true;
-  Object.assign(form, { ...row, password: '' });
+  Object.assign(form, { ...row, password: '', companies: [...(row.companies || [])] });
+  dialogVisible.value = true;
+  loadCompanyNames();
+}
+
+// 点「新增用户」时也要加载候选公司（不经过 editRow）
+function openCreate() {
+  loadCompanyNames();
   dialogVisible.value = true;
 }
 
 function resetForm() {
   editing.value = false;
-  Object.assign(form, { username: '', password: '', realName: '', email: '', role: 'user', id: undefined });
+  Object.assign(form, { username: '', password: '', realName: '', email: '', role: 'user', companies: [], id: undefined });
 }
 
 async function save() {
   await formRef.value?.validate();
   saving.value = true;
   try {
+    // 管理员不受限，提交时清空所选公司（避免留下容易误解的残留配置）
+    const companies = form.role === 'admin' ? [] : form.companies;
     if (editing.value) {
       await userApi.update(form.id, {
         username: form.username,
         realName: form.realName,
         email: form.email,
         role: form.role,
+        companies,
       });
       ElMessage.success('更新成功');
     } else {
-      await userApi.create(form);
+      await userApi.create({ ...form, companies });
       ElMessage.success('创建成功');
     }
     dialogVisible.value = false;
@@ -186,6 +242,16 @@ onMounted(loadData);
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+
+/* 公司权限列：多个公司标签之间的间距 */
+.company-tag {
+  margin: 2px 4px 2px 0;
+}
+
+.cell-muted {
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 </style>

@@ -130,6 +130,66 @@ func (s *CompanyService) AddressByName(name string) string {
 	return strings.TrimSpace(*row.Address)
 }
 
+// ---- 公司名集合（「公司档案 ∪ 实际出现过的检测站」）----
+
+// companyNameUnionSQL 返回公司名的并集。
+//
+// 为什么是并集而不是只取 companies：personnel.department / equipment.department 存的是
+// 自由填写的公司名，历史数据里可能存在没在公司档案登记过的名称
+// （本项目实际出现过"某公司只在人员数据里、公司档案中没有"的情况）。
+// 权限配置与「所属检测站」下拉都以此并集为取值来源，才能覆盖历史数据。
+const companyNameUnionSQL = `
+	SELECT name FROM companies WHERE name IS NOT NULL AND name != ''
+	UNION
+	SELECT department FROM personnel WHERE department IS NOT NULL AND department != ''
+	UNION
+	SELECT department FROM equipment WHERE department IS NOT NULL AND department != ''`
+
+// ValidNames 返回合法公司名的集合，供写入前校验（权限表、检测站字段）。
+func (s *CompanyService) ValidNames() (map[string]bool, error) {
+	names := []string{}
+	if err := s.DB.Select(&names, companyNameUnionSQL); err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			set[n] = true
+		}
+	}
+	return set, nil
+}
+
+// NameOptions 返回合法公司名的**有序**列表（去重）。
+// 顺序：公司档案里的优先（按名称），其余（仅数据里出现过的）排在其后。
+func (s *CompanyService) NameOptions() ([]string, error) {
+	type row struct {
+		Name    string `db:"name"`
+		InFirms int    `db:"in_firms"`
+	}
+	q := `SELECT name, MAX(in_firms) AS in_firms FROM (
+			SELECT name, 1 AS in_firms FROM companies WHERE name IS NOT NULL AND name != ''
+			UNION ALL
+			SELECT department AS name, 0 AS in_firms FROM personnel
+			  WHERE department IS NOT NULL AND department != ''
+			UNION ALL
+			SELECT department AS name, 0 AS in_firms FROM equipment
+			  WHERE department IS NOT NULL AND department != ''
+		  ) GROUP BY name
+		  ORDER BY in_firms DESC, name ASC`
+	rows := []row{}
+	if err := s.DB.Select(&rows, q); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if n := strings.TrimSpace(r.Name); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
 // ---- 内部小工具 ----
 
 func asString(v interface{}) string {

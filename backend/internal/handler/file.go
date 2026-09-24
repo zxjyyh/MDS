@@ -56,7 +56,7 @@ func (h *Handler) serveFile(c *gin.Context, forceAttachment bool) {
 		return
 	}
 
-	allowed, err := h.FileSvc.CanAccess(id, utils.GetAuthUserID(c))
+	allowed, err := h.FileSvc.CanAccess(currentScope(c), id, utils.GetAuthUserID(c))
 	if err != nil || !allowed {
 		utils.Fail(c, -1, "文件不存在或无权访问")
 		return

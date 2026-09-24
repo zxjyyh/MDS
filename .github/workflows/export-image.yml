@@ -1,0 +1,84 @@
+# 把镜像导出成 tar.gz 并作为 Actions artifact 提供下载
+#
+# 用途：不想在 NAS 上登录私有镜像仓库（不配置 GHCR 凭据）时，
+#       用「云端构建 → 网页下载 tar → NAS 图形界面导入」的方式部署。
+#       全程不需要本机装 Docker，也不需要 NAS 跑 npm/go 编译（避免 NAS OOM）。
+#
+# 使用：
+#   1. GitHub 网页 → Actions → 左侧选「Export Image (tar artifact)」→ Run workflow
+#      平台选 linux/amd64（绿联/飞牛 x86 NAS）；ARM 机型选 linux/arm64
+#   2. 跑完（约 5~12 分钟）在该次 run 页面底部下载 artifact（zip）
+#   3. 解压得到 mds-linux-amd64.tar.gz，传到 NAS 共享文件夹
+#   4. NAS 的 Docker → 镜像 → 本地镜像 → 导入  （或 docker load -i xxx.tar.gz）
+#   5. docker-compose.nas.yml 里改两处：
+#        image: mds:local
+#        pull_policy: never      ← 必须改！否则每次 up -d 都会去 registry 拉 mds:local 并失败
+#
+# 注意：私有仓库下此 workflow 会消耗 Actions 分钟数（约 5~12 分钟/次），
+#       artifact 也计入 Packages 存储配额（500MB，共享），所以默认只保留 3 天。
+#       不需要这条路时，直接删掉本文件即可。
+
+name: Export Image (tar artifact)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '目标平台（x86 NAS 选 amd64，ARM 机型选 arm64）'
+        required: true
+        default: 'linux/amd64'
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+      retention_days:
+        description: 'artifact 保留天数（会占用 Packages 存储配额）'
+        required: true
+        default: '3'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (local, 不推送)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          platforms: ${{ inputs.platform }}
+          # load: true 需要单平台；本 workflow 每次只导出一个架构
+          load: true
+          tags: mds:local
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Show image size
+        run: docker images mds:local
+
+      - name: Save image to tar.gz
+        run: |
+          SAFE=$(echo "${{ inputs.platform }}" | tr '/' '-')
+          docker save mds:local | gzip -9 > "mds-${SAFE}.tar.gz"
+          ls -lh mds-*.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # 注意：artifact 名称不允许含 '/'，所以这里不能用 inputs.platform
+          # （linux/amd64 会直接导致上传失败）
+          name: mds-image-${{ github.run_number }}
+          path: mds-*.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: error

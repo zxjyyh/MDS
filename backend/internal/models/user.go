@@ -16,4 +16,9 @@ type User struct {
 	TokenEpoch int    `db:"token_epoch" json:"-"`
 	CreatedAt  string `db:"created_at" json:"createdAt"`
 	UpdatedAt  string `db:"updated_at" json:"updatedAt"`
+
+	// Companies 该账号的可见公司（数据隔离），不来自 users 表，由 handler 用
+	// UserCompanyService 单独填充。必须标 `db:"-"`：auth_svc 用的是
+	// `SELECT * FROM users`，sqlx 找不到对应列会直接返回错误。
+	Companies []string `db:"-" json:"companies,omitempty"`
 }

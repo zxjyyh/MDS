@@ -46,23 +46,32 @@ func (s *UserService) GetByID(id int) (*models.User, error) {
 	return &u, err
 }
 
-func (s *UserService) Create(data models.User) error {
+func (s *UserService) Create(data models.User) (*models.User, error) {
 	var count int
 	s.DB.Get(&count, "SELECT COUNT(*) FROM users WHERE username=?", data.Username)
 	if count > 0 {
-		return errors.New("用户名已存在")
+		return nil, errors.New("用户名已存在")
 	}
 	s.DB.Get(&count, "SELECT COUNT(*) FROM users WHERE email=?", data.Email)
 	if count > 0 {
-		return errors.New("邮箱已存在")
+		return nil, errors.New("邮箱已存在")
 	}
 
 	hash, _ := utils.HashPassword(data.PasswordHash)
 	now := utils.NowString()
-	_, err := s.DB.Exec(`INSERT INTO users (username, password_hash, real_name, email, role, status, created_at, updated_at) 
+	res, err := s.DB.Exec(`INSERT INTO users (username, password_hash, real_name, email, role, status, created_at, updated_at) 
 		VALUES (?,?,?,?,?,?,?,?)`,
 		data.Username, hash, data.RealName, data.Email, data.Role, data.Status, now, now)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	// 返回含新 id 的用户，供调用方继续配置「公司权限」等关联数据
+	if id, idErr := res.LastInsertId(); idErr == nil {
+		data.ID = int(id)
+	}
+	data.CreatedAt, data.UpdatedAt = now, now
+	data.PasswordHash = "" // 不外传
+	return &data, nil
 }
 
 // Update 修改用户资料。username 是登录名，允许修改（含 admin 账号），

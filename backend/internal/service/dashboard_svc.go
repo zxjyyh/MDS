@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zxjyyh/mds/internal/models"
+	"github.com/zxjyyh/mds/internal/scope"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -67,19 +68,55 @@ func checkFilter(filter string) error {
 }
 
 // ---- Stats count helpers ----
+//
+// 公司隔离（2026-09-22）：所有计数都接受 *scope.Scope。
+// **隔离列由服务内部按表推导**（scopeColumnFor），不接受调用方传入的字符串 ——
+// 这样既不必放开 checkFilter 的正则（它不允许括号与问号），也避免把拼 SQL 的自由度交出去。
 
-func CountExpiring(db *sqlx.DB, table, col string, days int) (int, error) {
+// scopeColumnFor 返回该表用于公司隔离的列；空串表示**不做隔离**。
+//
+// documents（资料库）是全局共享资料（法规标准 / 安全生产），不属于任何公司，故不隔离。
+// 见 docs/company-data-scope.md §8。
+func scopeColumnFor(table string) string {
+	switch table {
+	case "personnel", "equipment":
+		return "department"
+	default:
+		return ""
+	}
+}
+
+// scopeSQL 返回要追加的隔离条件与参数；不需要隔离或不受限时返回 ("", nil)。
+func scopeSQL(table string, sc *scope.Scope) (string, []any) {
+	col := scopeColumnFor(table)
+	if col == "" {
+		return "", nil
+	}
+	cond, args := sc.Condition(col)
+	if cond == "1=1" {
+		return "", nil
+	}
+	return " AND " + cond, args
+}
+
+func CountExpiring(db *sqlx.DB, table, col string, days int, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
 	var c int
 	now := time.Now().Format("2006-01-02")
 	future := time.Now().AddDate(0, 0, days).Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s BETWEEN ? AND ?", table, col, col), now, future)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s BETWEEN ? AND ?", table, col, col)
+	args := []any{now, future}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountExpiringRange(db *sqlx.DB, table, col string, from, to int) (int, error) {
+func CountExpiringRange(db *sqlx.DB, table, col string, from, to int, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
@@ -87,32 +124,50 @@ func CountExpiringRange(db *sqlx.DB, table, col string, from, to int) (int, erro
 	now := time.Now()
 	start := now.AddDate(0, 0, from).Format("2006-01-02")
 	end := now.AddDate(0, 0, to).Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s != '' AND %s BETWEEN ? AND ?", table, col, col, col), start, end)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s != '' AND %s BETWEEN ? AND ?", table, col, col, col)
+	args := []any{start, end}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountExpired(db *sqlx.DB, table, col string) (int, error) {
+func CountExpired(db *sqlx.DB, table, col string, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
 	var c int
 	now := time.Now().Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s != '' AND %s < ?", table, col, col, col), now)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL AND %s != '' AND %s < ?", table, col, col, col)
+	args := []any{now}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountTotal(db *sqlx.DB, table string) (int, error) {
+func CountTotal(db *sqlx.DB, table string, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, ""); err != nil {
 		return 0, err
 	}
 	var c int
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s", table))
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE 1=1", table)
+	var args []any
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
 // Filtered versions for documents (by system_type)
 
-func CountExpiringFiltered(db *sqlx.DB, table, col, filter string, days int) (int, error) {
+func CountExpiringFiltered(db *sqlx.DB, table, col, filter string, days int, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
@@ -122,11 +177,17 @@ func CountExpiringFiltered(db *sqlx.DB, table, col, filter string, days int) (in
 	var c int
 	now := time.Now().Format("2006-01-02")
 	future := time.Now().AddDate(0, 0, days).Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s BETWEEN ? AND ?", table, filter, col, col), now, future)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s BETWEEN ? AND ?", table, filter, col, col)
+	args := []any{now, future}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountExpiringRangeFiltered(db *sqlx.DB, table, col, filter string, from, to int) (int, error) {
+func CountExpiringRangeFiltered(db *sqlx.DB, table, col, filter string, from, to int, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
@@ -137,11 +198,17 @@ func CountExpiringRangeFiltered(db *sqlx.DB, table, col, filter string, from, to
 	now := time.Now()
 	start := now.AddDate(0, 0, from).Format("2006-01-02")
 	end := now.AddDate(0, 0, to).Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s != '' AND %s BETWEEN ? AND ?", table, filter, col, col, col), start, end)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s != '' AND %s BETWEEN ? AND ?", table, filter, col, col, col)
+	args := []any{start, end}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountExpiredFiltered(db *sqlx.DB, table, col, filter string) (int, error) {
+func CountExpiredFiltered(db *sqlx.DB, table, col, filter string, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, col); err != nil {
 		return 0, err
 	}
@@ -150,11 +217,17 @@ func CountExpiredFiltered(db *sqlx.DB, table, col, filter string) (int, error) {
 	}
 	var c int
 	now := time.Now().Format("2006-01-02")
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s != '' AND %s < ?", table, filter, col, col, col), now)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND %s IS NOT NULL AND %s != '' AND %s < ?", table, filter, col, col, col)
+	args := []any{now}
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
-func CountTotalFiltered(db *sqlx.DB, table, filter string) (int, error) {
+func CountTotalFiltered(db *sqlx.DB, table, filter string, sc *scope.Scope) (int, error) {
 	if err := checkIdent(table, ""); err != nil {
 		return 0, err
 	}
@@ -162,7 +235,13 @@ func CountTotalFiltered(db *sqlx.DB, table, filter string) (int, error) {
 		return 0, err
 	}
 	var c int
-	err := db.Get(&c, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", table, filter))
+	q := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", table, filter)
+	var args []any
+	if frag, fargs := scopeSQL(table, sc); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	err := db.Get(&c, q, args...)
 	return c, err
 }
 
@@ -265,7 +344,7 @@ func getIgnoredKeys(db *sqlx.DB) (map[string]bool, error) {
 }
 
 // GetExpiringList now excludes ignored items
-func GetExpiringList(db *sqlx.DB, module string, days, page, pageSize int) ([]map[string]interface{}, int, error) {
+func GetExpiringList(db *sqlx.DB, sc *scope.Scope, module string, days, page, pageSize int) ([]map[string]interface{}, int, error) {
 	now := time.Now().Format("2006-01-02")
 	var future string
 	if days == 0 {
@@ -316,7 +395,8 @@ func GetExpiringList(db *sqlx.DB, module string, days, page, pageSize int) ([]ma
 		sqlStr = strings.Join(parts, " UNION ALL ")
 		isUnion = true
 	case "equipment_cert":
-		sqlStr = `SELECT 'equipment_cert' as module, ec.cert_type as target_name, ec.cert_number, ec.expiry_date, e.name as related_name, ec.file_id
+		// 必须一并选出 department：外层子查询要按它做公司隔离过滤
+		sqlStr = `SELECT 'equipment_cert' as module, ec.cert_type as target_name, ec.cert_number, ec.expiry_date, e.name as related_name, e.department as department, ec.file_id
 			FROM equipment_certificates ec LEFT JOIN equipment e ON e.id=ec.equipment_id
 			WHERE ec.expiry_date IS NOT NULL AND ec.expiry_date != '' AND ec.expiry_date `
 	case "qualification_doc":
@@ -340,47 +420,54 @@ func GetExpiringList(db *sqlx.DB, module string, days, page, pageSize int) ([]ma
 		}
 	}
 
-	// Count total
-	var total int
+	// ---- 公司隔离：在外层子查询上统一过滤 ----
+	//
+	// 放到外层只需要改一处：子查询的每个分支都已经选出了 department 列
+	// （人员/设备取各自的 department，资料库两个分支填空串）。
+	// 例外：qualification_doc / safety_doc 是**全局共享**资料（法规标准、安全生产），
+	// 不属于任何公司，故不做隔离 —— 见 docs/company-data-scope.md §8。
+	scopeCond, scopeArgs := "1=1", []any(nil)
+	if module != "qualification_doc" && module != "safety_doc" {
+		scopeCond, scopeArgs = sc.Condition("sub.department")
+	}
+	base := "SELECT * FROM (" + sqlStr + ") AS sub"
 	countSQL := "SELECT COUNT(*) FROM (" + sqlStr + ") AS sub"
-	if !isUnion {
-		if days == 0 {
-			if err := db.Get(&total, countSQL, now); err != nil {
-				return nil, 0, err
-			}
-		} else {
-			if err := db.Get(&total, countSQL, now, future); err != nil {
-				return nil, 0, err
-			}
-		}
-	} else {
-		if err := db.Get(&total, countSQL); err != nil {
-			return nil, 0, err
-		}
+	if scopeCond != "1=1" {
+		base += " WHERE " + scopeCond
+		countSQL += " WHERE " + scopeCond
+	}
+
+	// Count total：参数顺序必须与占位符一致
+	// （非 UNION 分支里日期是 ? 且位于子查询内部 → 排在隔离参数之前）
+	var total int
+	var err error
+	switch {
+	case isUnion:
+		err = db.Get(&total, countSQL, scopeArgs...)
+	case days == 0:
+		err = db.Get(&total, countSQL, append([]any{now}, scopeArgs...)...)
+	default:
+		err = db.Get(&total, countSQL, append([]any{now, future}, scopeArgs...)...)
+	}
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// Paginated query
 	offset := (page - 1) * pageSize
-	if !isUnion {
-		sqlStr += " ORDER BY expiry_date LIMIT ? OFFSET ?"
-	} else {
-		sqlStr = "SELECT * FROM (" + sqlStr + ") AS sub ORDER BY expiry_date LIMIT ? OFFSET ?"
-	}
-	var items []ExpiringItem
+	sqlStr = base + " ORDER BY expiry_date LIMIT ? OFFSET ?"
+	selectArgs := append([]any{}, scopeArgs...)
 	if !isUnion {
 		if days == 0 {
-			if err := db.Select(&items, sqlStr, now, pageSize, offset); err != nil {
-				return nil, 0, err
-			}
+			selectArgs = append([]any{now}, selectArgs...)
 		} else {
-			if err := db.Select(&items, sqlStr, now, future, pageSize, offset); err != nil {
-				return nil, 0, err
-			}
+			selectArgs = append([]any{now, future}, selectArgs...)
 		}
-	} else {
-		if err := db.Select(&items, sqlStr, pageSize, offset); err != nil {
-			return nil, 0, err
-		}
+	}
+	selectArgs = append(selectArgs, pageSize, offset)
+	var items []ExpiringItem
+	if err := db.Select(&items, sqlStr, selectArgs...); err != nil {
+		return nil, 0, err
 	}
 
 	// Convert to JSON-friendly format, excluding ignored items

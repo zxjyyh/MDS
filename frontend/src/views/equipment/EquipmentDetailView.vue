@@ -59,6 +59,12 @@
             <el-form-item label="检定证书编号">
               <el-input v-model="form.inspectionCertNumber" style="width:280px" />
             </el-form-item>
+            <el-form-item label="检定单位">
+              <el-input v-model="form.calibrationUnit" style="width:280px" placeholder="检定证书出具单位名称" />
+            </el-form-item>
+            <el-form-item label="检定费用">
+              <el-input v-model="form.calibrationFee" style="width:280px" placeholder="可填多项，如：外观 300、制动 500" />
+            </el-form-item>
             <el-form-item label="检定时间">
               <el-date-picker v-model="form.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:280px" />
             </el-form-item>
@@ -160,7 +166,7 @@ const saving = ref(false);
 
 // ===== 基本信息表单 =====
 const formRef = ref<FormInstance>();
-const form = reactive<any>({ name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', remark: '', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '' });
+const form = reactive<any>({ name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', remark: '', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', calibrationUnit: '', calibrationFee: '' });
 const permFlag = ref(false);
 function onPermToggle(v: boolean) { if (v) form.inspectionExpiryDate = ''; }
 const rules: FormRules = {
@@ -181,8 +187,11 @@ function fillForm(d: any) {
     inspectionCertNumber: d.inspectionCertNumber || '',
     inspectionDate: d.inspectionDate ? d.inspectionDate.substring(0, 10) : '',
     inspectionExpiryDate: d.inspectionExpiryDate ? d.inspectionExpiryDate.substring(0, 10) : '',
+    calibrationUnit: d.calibrationUnit || '',
+    calibrationFee: d.calibrationFee || '',
   });
-  permFlag.value = !d.inspectionExpiryDate;
+  // 不按到期日是否为空自动勾「长期有效」：没填日期就是空（与人员详情统一口径，2026-09-24）
+  permFlag.value = false;
 }
 
 async function saveInfo() {
@@ -223,7 +232,8 @@ function openCertDialog(row?: any) {
       fileId: row.fileId || 0,
       remark: row.remark || '',
     });
-    certPermFlag.value = !row.expiryDate;
+    // 同样不按到期日是否为空自动勾「长期有效」（2026-09-24 统一口径）
+    certPermFlag.value = false;
   }
   certDialog.value = true;
 }

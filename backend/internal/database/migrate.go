@@ -67,8 +67,10 @@ func AutoMigrate(db *sqlx.DB) error {
 			"graduation_date" TEXT,
 			"security_cert_date" TEXT,
 			"security_cert_number" TEXT,
+			"security_positions" TEXT,
 			"env_cert_date" TEXT,
 			"env_cert_number" TEXT,
+			"env_positions" TEXT,
 			"inspection_date" TEXT,
 			"inspection_cert_number" TEXT,
 			"status" TEXT NOT NULL DEFAULT 'active',
@@ -104,6 +106,8 @@ func AutoMigrate(db *sqlx.DB) error {
 			"inspection_cert_number" TEXT,
 			"inspection_date" TEXT,
 			"inspection_expiry_date" TEXT,
+			"calibration_unit" TEXT,
+			"calibration_fee" TEXT,
 			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
 			"updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
@@ -211,6 +215,18 @@ func AutoMigrate(db *sqlx.DB) error {
 			"ignored_by" INTEGER NOT NULL REFERENCES "users"("id"),
 			"created_at" TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
+
+		// 账号可见公司（数据隔离）：一个账号可绑定多个公司，空表示不受限（见 internal/scope）。
+		// 存公司名而不是 company_id —— 与 personnel.department / equipment.department 的
+		// 过滤方式保持一致（那两张表的 department 存的就是公司名）。
+		`CREATE TABLE IF NOT EXISTS "user_companies" (
+			"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+			"user_id" INTEGER NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+			"company_name" TEXT NOT NULL,
+			"created_at" TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE("user_id", "company_name")
+		)`,
+		`CREATE INDEX IF NOT EXISTS "idx_user_companies_user" ON "user_companies"("user_id")`,
 	}
 
 	for _, stmt := range ddl {
@@ -267,6 +283,17 @@ func AutoMigrate(db *sqlx.DB) error {
 		`ALTER TABLE operation_logs ADD COLUMN role TEXT`,
 		`ALTER TABLE operation_logs ADD COLUMN method TEXT`,
 		`ALTER TABLE operation_logs ADD COLUMN path TEXT`,
+		// 人员：安检证 / 环保证对应的岗位（多选，逗号分隔存文本）。
+		// 与 security_cert_number / env_cert_number 同级放在人员表上，
+		// 不放进 personnel_certificates —— 那两个证是给每人预置的固定行，
+		// 岗位描述的是"这个人持该证能干什么"，不是某一份上传件的属性。
+		`ALTER TABLE personnel ADD COLUMN security_positions TEXT`,
+		`ALTER TABLE personnel ADD COLUMN env_positions TEXT`,
+		// 设备：检定证书出具单位 + 送检费用。
+		// 费用刻意用 TEXT 且不预留"元"字：同一台设备可能分项报价（如"外观 300，制动 500"），
+		// 强制数值或加单位反而写不进去，交给使用者自由填写。
+		`ALTER TABLE equipment ADD COLUMN calibration_unit TEXT`,
+		`ALTER TABLE equipment ADD COLUMN calibration_fee TEXT`,
 	}
 	for _, stmt := range upgrades {
 		db.Exec(stmt) // ignore error (column may already exist or already renamed)
@@ -458,6 +485,7 @@ var timestampColumns = map[string][]string{
 	"reminder_logs":          {"created_at", "sent_at"},
 	"operation_logs":         {"created_at"},
 	"ignored_warnings":       {"created_at"},
+	"user_companies":         {"created_at"},
 }
 
 // NormalizeLegacyTimestamps 把历史遗留的 "2006-01-02 15:04:05"（UTC）时间戳

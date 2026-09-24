@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+
 	"github.com/zxjyyh/mds/internal/utils"
 	"strconv"
 )
@@ -9,7 +10,7 @@ import (
 func (h *Handler) ListEquipment(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "pageSize", 10)
-	list, total, err := h.EquipmentSvc.List(c.Query("department"), c.Query("line"), c.Query("name"), c.Query("status"), page, pageSize)
+	list, total, err := h.EquipmentSvc.List(currentScope(c), c.Query("department"), c.Query("line"), c.Query("name"), c.Query("status"), page, pageSize)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
@@ -19,7 +20,7 @@ func (h *Handler) ListEquipment(c *gin.Context) {
 
 // EquipmentOptions 返回用于筛选下拉框的所属检测站列表，以及各检测站下的所属检测线列表。
 func (h *Handler) EquipmentOptions(c *gin.Context) {
-	departments, lines, err := h.EquipmentSvc.Options()
+	departments, lines, err := h.EquipmentSvc.Options(currentScope(c))
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
@@ -29,7 +30,7 @@ func (h *Handler) EquipmentOptions(c *gin.Context) {
 
 func (h *Handler) GetEquipment(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	e, err := h.EquipmentSvc.GetByID(id)
+	e, err := h.EquipmentSvc.GetByID(currentScope(c), id)
 	if err != nil {
 		utils.Fail(c, -1, "设备不存在")
 		return
@@ -43,7 +44,7 @@ func (h *Handler) CreateEquipment(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	e, err := h.EquipmentSvc.Create(body)
+	e, err := h.EquipmentSvc.Create(currentScope(c), body)
 	if err != nil {
 		utils.Fail(c, -1, "创建失败："+err.Error())
 		return
@@ -58,7 +59,7 @@ func (h *Handler) UpdateEquipment(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.EquipmentSvc.Update(id, body); err != nil {
+	if err := h.EquipmentSvc.Update(currentScope(c), id, body); err != nil {
 		utils.Fail(c, -1, "更新失败")
 		return
 	}
@@ -67,7 +68,7 @@ func (h *Handler) UpdateEquipment(c *gin.Context) {
 
 func (h *Handler) DeleteEquipment(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.EquipmentSvc.Delete(id); err != nil {
+	if err := h.EquipmentSvc.Delete(currentScope(c), id); err != nil {
 		utils.Fail(c, -1, "删除失败")
 		return
 	}
@@ -81,7 +82,7 @@ func (h *Handler) AddEquipmentCert(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	cert, err := h.EquipmentSvc.AddCert(id, body)
+	cert, err := h.EquipmentSvc.AddCert(currentScope(c), id, body)
 	if err != nil {
 		utils.Fail(c, -1, "添加失败："+err.Error())
 		return
@@ -96,7 +97,7 @@ func (h *Handler) UpdateEquipmentCert(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.EquipmentSvc.UpdateCert(certID, body); err != nil {
+	if err := h.EquipmentSvc.UpdateCert(currentScope(c), certID, body); err != nil {
 		utils.Fail(c, -1, "更新失败")
 		return
 	}
@@ -105,7 +106,7 @@ func (h *Handler) UpdateEquipmentCert(c *gin.Context) {
 
 func (h *Handler) DeleteEquipmentCert(c *gin.Context) {
 	certID, _ := strconv.Atoi(c.Param("certId"))
-	if err := h.EquipmentSvc.DeleteCert(certID); err != nil {
+	if err := h.EquipmentSvc.DeleteCert(currentScope(c), certID); err != nil {
 		utils.Fail(c, -1, "删除失败")
 		return
 	}

@@ -17,6 +17,9 @@ type Equipment struct {
 	InspectionCertNumber *string `db:"inspection_cert_number" json:"inspectionCertNumber"`
 	InspectionDate       *string `db:"inspection_date" json:"inspectionDate"`
 	InspectionExpiryDate *string `db:"inspection_expiry_date" json:"inspectionExpiryDate"`
+	// 检定证书出具单位、送检费用（费用为自由文本：可能分项多价，不预留"元"）
+	CalibrationUnit *string `db:"calibration_unit" json:"calibrationUnit"`
+	CalibrationFee  *string `db:"calibration_fee" json:"calibrationFee"`
 
 	// associations
 	Certificates []EquipmentCertificate `db:"-" json:"certificates,omitempty"`

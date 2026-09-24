@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zxjyyh/mds/internal/models"
+	"github.com/zxjyyh/mds/internal/scope"
 	"github.com/zxjyyh/mds/internal/utils"
 
 	"github.com/google/uuid"
@@ -332,27 +333,72 @@ func NormalizeFilePaths(db *sqlx.DB, uploadDir string) (int, error) {
 
 // CanAccess 判断某个登录用户是否有权读取该文件。
 //
-// 规则：文件被任一业务实体引用（人员头像 / 人员证书 / 设备证书 / 体系文档附件），
-// 或者是该用户自己上传的。
+// CanAccess 判断当前账号能否访问该文件。
 //
-// 为什么不做成 owner-only：本应用的读模型就是「任何登录用户都能查看全部业务数据」，
-// 人员列表页要显示所有人的头像。若限制成只能看自己上传的，普通用户会看到一片裂图。
-// 这里真正要拦的是「猜 ID 遍历那些尚未被任何实体引用的游离文件」。
-func (s *FileService) CanAccess(fileID, userID int) (bool, error) {
-	const q = `
+// 规则（2026-09-22 起按公司隔离）：
+//
+//	① 文件是该账号自己上传的 → 允许
+//	② 文件被人员头像/人员证书引用，且**那个人员属于该账号可见的公司** → 允许
+//	③ 文件被设备证书引用，且**那台设备属于可见公司** → 允许
+//	④ 文件被资料库文档引用，且该文档属于可见公司 → 允许
+//	  （法规标准是全局共享资料，豁免公司限制）
+//
+// 改造前的注释写的是「本应用的读模型就是任何登录用户都能查看全部业务数据」——
+// 那个前提现在不成立了。但下面这条仍然成立，别改回去：
+// 这里**不做 owner-only**。人员列表要显示所有人的头像，若限制成"只能看自己上传的"，
+// 受限账号打开本公司的列表会看到一片裂图。要拦的是「猜到 file id 去遍历」，
+// 尤其是**跨公司**下载别人的身份证扫描件。
+func (s *FileService) CanAccess(sc *scope.Scope, fileID, userID int) (bool, error) {
+	// 受限时给各分支加公司条件（不受限时片段为空串，行为与改造前一致）
+	pf, pArgs := sc.SQLFilter("p.department")
+	ef, eArgs := sc.SQLFilter("e.department")
+
+	// 资料库附件同样按公司过滤，但**法规标准豁免**（它是全局共享资料）。
+	// 条件必须是一个整体（OR 包在一起），不能拆成两条 AND，否则法规标准也会被挡掉。
+	df, dArgs := "", []any(nil)
+	if f := sc.Filter(); len(f) > 0 {
+		ph := make([]string, len(f))
+		for i := range f {
+			ph[i] = "?"
+		}
+		df = " AND (d.system_type = ? OR d.company_name IN (" + strings.Join(ph, ",") + "))"
+		dArgs = append(dArgs, DocSystemLegalStandard)
+		for _, c := range f {
+			dArgs = append(dArgs, c)
+		}
+	}
+
+	q := `
 		SELECT EXISTS(
-			SELECT 1 FROM uploaded_files      WHERE id=? AND uploaded_by=?
+			SELECT 1 FROM uploaded_files WHERE id=? AND uploaded_by=?
 			UNION ALL
-			SELECT 1 FROM personnel           WHERE photo_file_id=?
+			SELECT 1 FROM personnel p WHERE p.photo_file_id=?` + pf + `
 			UNION ALL
-			SELECT 1 FROM personnel_certificates WHERE file_id=?
+			SELECT 1 FROM personnel_certificates pc
+			  JOIN personnel p ON p.id = pc.personnel_id
+			  WHERE pc.file_id=?` + pf + `
 			UNION ALL
-			SELECT 1 FROM equipment_certificates WHERE file_id=?
+			SELECT 1 FROM equipment_certificates ec
+			  JOIN equipment e ON e.id = ec.equipment_id
+			  WHERE ec.file_id=?` + ef + `
 			UNION ALL
-			SELECT 1 FROM documents           WHERE file_id=?
+			SELECT 1 FROM documents d WHERE d.file_id=?` + df + `
 		)`
+
+	// 参数顺序必须与上面的占位符一一对应（每加一段 pf/ef 就要补一次对应参数）
+	args := make([]any, 0, 8)
+	args = append(args, fileID, userID) // ① 自己上传的
+	args = append(args, fileID)
+	args = append(args, pArgs...) // ② 人员头像
+	args = append(args, fileID)
+	args = append(args, pArgs...) // ② 人员证书
+	args = append(args, fileID)
+	args = append(args, eArgs...) // ③ 设备证书
+	args = append(args, fileID)
+	args = append(args, dArgs...) // ④ 资料库文档（法规标准豁免）
+
 	var ok bool
-	err := s.DB.Get(&ok, q, fileID, userID, fileID, fileID, fileID, fileID)
+	err := s.DB.Get(&ok, q, args...)
 	return ok, err
 }
 

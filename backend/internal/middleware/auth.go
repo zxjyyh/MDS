@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/zxjyyh/mds/internal/scope"
 	"github.com/zxjyyh/mds/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -89,6 +90,20 @@ func acceptUser(c *gin.Context, db *sqlx.DB, claims *utils.Claims) bool {
 	c.Set("userId", claims.UserID)
 	c.Set("username", claims.Username)
 	c.Set("userRole", claims.Role)
+
+	// 数据可见范围（按公司隔离）。每请求查一次，保证「改配置 / 清空配置」立即生效；
+	// 不做缓存 —— 本地 SQLite 查询开销可忽略，正确性优先。
+	//
+	// 查询出错时走 fail-open（当作未配置公司 → 不受限），与「未配置即不受限」的既定规则
+	// 保持一致：宁可退化成「没开隔离」，也不要把一次偶发查询失败放大成全员看不到数据。
+	// 表缺失（旧库未迁移）同理。管理员本来就不受限，不受这里影响。
+	companies := []string{}
+	if err := db.Select(&companies,
+		"SELECT company_name FROM user_companies WHERE user_id=?", claims.UserID); err != nil {
+		c.Set("dataScope", scope.All())
+		return true
+	}
+	c.Set("dataScope", scope.New(claims.Role, companies))
 	return true
 }
 

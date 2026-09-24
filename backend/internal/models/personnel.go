@@ -40,8 +40,10 @@ type Personnel struct {
 	GraduationDate        *string `db:"graduation_date" json:"graduationDate"`
 	SecurityCertDate      *string `db:"security_cert_date" json:"securityCertDate"`
 	SecurityCertNumber    *string `db:"security_cert_number" json:"securityCertNumber"`
+	SecurityPositions     *string `db:"security_positions" json:"securityPositions"`
 	EnvCertDate           *string `db:"env_cert_date" json:"envCertDate"`
 	EnvCertNumber         *string `db:"env_cert_number" json:"envCertNumber"`
+	EnvPositions          *string `db:"env_positions" json:"envPositions"`
 	InspectionDate        *string `db:"inspection_date" json:"inspectionDate"`
 	InspectionCertNumber  *string `db:"inspection_cert_number" json:"inspectionCertNumber"`
 	InternalAuditorNumber *string `db:"internal_auditor_number" json:"internalAuditorNumber"`

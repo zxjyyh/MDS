@@ -15,8 +15,25 @@
 #      docker compose -f docker-compose.nas.yml up -d
 #   5. 浏览器访问 http://<NAS内网IP>:13000
 #
-# 若镜像仓库是 Private，需要先登录：
-#   echo <GitHub PAT> | docker login ghcr.io -u <GitHub用户名> --password-stdin
+# 【仓库转私有后必读】镜像仓库为 Private 时，NAS 必须先登录才有权拉取：
+#   1. 生成 GitHub PAT（classic）：Settings → Developer settings →
+#      Personal access tokens → Tokens (classic)
+#      勾选 read:packages（必需）+ repo（镜像属私有仓库，建议一并勾选），并设置有效期
+#   2. SSH 登录 NAS 执行（先 logout 清掉可能残留的旧凭据）：
+#        docker logout ghcr.io
+#        echo <PAT> | docker login ghcr.io -u <GitHub用户名> --password-stdin
+#      看到 "Login Succeeded" 即成功。凭据保存在 NAS 的 ~/.docker/config.json，
+#      之后 docker compose pull 无需重复登录；PAT 到期后需重做一次本步骤
+#   3. 说明：绿联 UGOS Pro 的「镜像 → 镜像仓库 → 新建」只能填「别名 + 源链接」
+#      （那是**镜像加速源**，没有账号密码字段）→ 图形界面无法登录 GHCR 私有仓库。
+#      若想完全不用 SSH，两条替代路线：
+#        a) 在 NAS 上装 Portainer（应用中心可能有），在它的 Registries 里添加
+#           ghcr.io + 用户名 + PAT，再用 Portainer 的 Stack 功能部署本文件；
+#        b) 本机构建后「导出 tar → 图形界面 本地镜像 → 导入」：
+#             docker build -f backend/Dockerfile -t mds:local --platform linux/amd64 .
+#             docker save mds:local -o mds.tar
+#           传到 NAS 后在 Docker 图形界面导入，并把上面 image: 改成 mds:local
+#           （每次更新都要手动搬一次文件）
 #
 # 关于 PUID / PGID（容器内运行身份）：
 #   默认 0:0（即 root），这样无论 NAS 宿主目录属主是谁、是否支持 chown，

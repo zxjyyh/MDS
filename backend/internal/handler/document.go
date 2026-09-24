@@ -17,7 +17,7 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 		categoryID = &id
 	}
 
-	list, total, err := h.DocumentSvc.List(systemType, categoryID, c.Query("keyword"), c.Query("expiryStatus"), page, pageSize)
+	list, total, err := h.DocumentSvc.List(currentScope(c), systemType, categoryID, c.Query("keyword"), c.Query("expiryStatus"), page, pageSize)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
@@ -27,7 +27,7 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 
 func (h *Handler) GetDocument(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	doc, err := h.DocumentSvc.GetByID(id)
+	doc, err := h.DocumentSvc.GetByID(currentScope(c), id)
 	if err != nil {
 		utils.Fail(c, -1, "文档不存在")
 		return
@@ -41,7 +41,7 @@ func (h *Handler) CreateDocument(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.DocumentSvc.Create(body, utils.GetAuthUserID(c)); err != nil {
+	if err := h.DocumentSvc.Create(currentScope(c), body, utils.GetAuthUserID(c)); err != nil {
 		utils.Fail(c, -1, "创建失败："+err.Error())
 		return
 	}
@@ -55,7 +55,7 @@ func (h *Handler) UpdateDocument(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.DocumentSvc.Update(id, body); err != nil {
+	if err := h.DocumentSvc.Update(currentScope(c), id, body); err != nil {
 		utils.Fail(c, -1, "更新失败")
 		return
 	}
@@ -64,7 +64,7 @@ func (h *Handler) UpdateDocument(c *gin.Context) {
 
 func (h *Handler) DeleteDocument(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.DocumentSvc.Delete(id); err != nil {
+	if err := h.DocumentSvc.Delete(currentScope(c), id); err != nil {
 		utils.Fail(c, -1, "删除失败")
 		return
 	}

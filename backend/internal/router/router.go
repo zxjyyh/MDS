@@ -83,6 +83,9 @@ func Setup(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *gin.Engine {
 	users.DELETE("/:id", h.DeleteUser)
 	users.PUT("/:id/password", h.ResetPassword)
 	users.PATCH("/:id/status", h.SetStatus)
+	// 账号可见公司（数据隔离）：覆盖式设置，传空数组 = 清空 = 恢复为不受限。
+	// 仅管理员 —— 整组已挂 RequireAdmin。
+	users.PUT("/:id/companies", h.SetUserCompanies)
 
 	// Personnel（普通用户可读写）
 	personnel := api.Group("/personnel", middleware.Auth(db, cfg.JWTSecret))
@@ -125,6 +128,11 @@ func Setup(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *gin.Engine {
 	// 就会看到「需要管理员权限」的报错。
 	// 只暴露 id / name / address（不含信用代码与银行账号）；公司信息的增删改查仍整组限管理员。
 	api.GET("/companies/options", middleware.Auth(db, cfg.JWTSecret), h.CompanyOptions)
+
+	// 合法的公司名列表（公司档案 ∪ 人员/设备里出现过的检测站，去重）。
+	// 对**所有登录用户**开放：人员/设备表单的「所属检测站」下拉要用它，
+	// 而这两个模块普通用户可读写。只返回名称，不含任何公司敏感信息。
+	api.GET("/companies/names", middleware.Auth(db, cfg.JWTSecret), h.CompanyNames)
 
 	// Companies（公司信息 / 甲方主体资料）—— 其余接口限管理员：
 	// 普通用户已在菜单与路由上隐藏该模块，接口层同步收紧做纵深防御

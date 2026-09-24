@@ -2,9 +2,6 @@
   <div class="page-container">
     <div class="page-header">
       <span class="page-title">设备管理</span>
-      <el-button type="primary" @click="dialogVisible = true">
-        <el-icon><Plus /></el-icon>新增设备
-      </el-button>
     </div>
 
     <div class="search-bar">
@@ -22,6 +19,13 @@
       </el-select>
       <el-button type="primary" @click="loadData">查询</el-button>
       <el-button @click="resetQuery">重置</el-button>
+      <!-- 证件查漏：与人员管理同位置；设备侧的具体口径待补充（用户 2026-09-22 要求先占位） -->
+      <el-button type="warning" @click="openCertGap">
+        <el-icon><Search /></el-icon>证件查漏
+      </el-button>
+      <el-button type="primary" @click="dialogVisible = true">
+        <el-icon><Plus /></el-icon>新增设备
+      </el-button>
       <el-button type="danger" @click="colDialog = true">
         <el-icon><Setting /></el-icon>展示设置
       </el-button>
@@ -53,6 +57,14 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
+      <!-- 检定单位（默认隐藏，需在「展示设置」里勾选） -->
+      <el-table-column v-if="isVisible('calibrationUnit')" prop="calibrationUnit" label="检定单位" min-width="150" sortable="custom" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.calibrationUnit || '-' }}</template>
+      </el-table-column>
+      <!-- 检定费用（默认隐藏；自由文本，可能一次填多项价格） -->
+      <el-table-column v-if="isVisible('calibrationFee')" prop="calibrationFee" label="检定费用" min-width="140" sortable="custom" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.calibrationFee || '-' }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="130" align="center">
         <template #default="{ row }">
           <div style="display:flex;justify-content:center;gap:2px">
@@ -64,7 +76,7 @@
     </el-table>
 
     <div class="pagination-wrap">
-      <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadData" @size-change="loadData" />
+      <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" @current-change="loadData" @size-change="loadData" />
     </div>
 
     <!-- 新增设备对话框 -->
@@ -90,6 +102,12 @@
         </el-form-item>
         <el-form-item label="检定证书编号">
           <el-input v-model="form.inspectionCertNumber" style="width:280px" />
+        </el-form-item>
+        <el-form-item label="检定单位">
+          <el-input v-model="form.calibrationUnit" style="width:280px" placeholder="检定证书出具单位名称" />
+        </el-form-item>
+        <el-form-item label="检定费用">
+          <el-input v-model="form.calibrationFee" style="width:280px" placeholder="可填多项，如：外观 300、制动 500" />
         </el-form-item>
         <el-form-item label="检定时间">
           <el-date-picker v-model="form.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:280px" />
@@ -142,6 +160,10 @@ const allColumns: ColumnDef[] = [
   { prop: 'status', label: '状态' },
   { prop: 'inspectionCertNumber', label: '检定证书编号' },
   { prop: 'inspectionExpiryDate', label: '检定有效期' },
+  // 检定单位 / 检定费用默认不显示：日常看设备列表用不到，
+  // 只在"送检要多少钱、找谁出的证"时才有用，需要的人自己去「展示设置」勾选。
+  { prop: 'calibrationUnit', label: '检定单位', defaultHidden: true },
+  { prop: 'calibrationFee', label: '检定费用', defaultHidden: true },
 ];
 const colDialog = ref(false);
 const { visibleColumns, isVisible, resetColumns } = useColumnSetting('equipment', allColumns);
@@ -150,7 +172,15 @@ window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 
 const list = ref<any[]>([]);
 const loading = ref(false);
 const total = ref(0);
-const query = reactive({ page: 1, pageSize: 20, department: '', line: '', name: '', status: '' });
+// 默认一页 100 条：与人员管理保持一致（设备有上百台，20 条会导致频繁翻页）
+const query = reactive({ page: 1, pageSize: 100, department: '', line: '', name: '', status: '' });
+
+// 证件查漏：设备侧的具体口径（按检定有效期？按证书类型？）待补充，
+// 这里先占位 —— 按钮与人员管理同位置，点击给出明确提示而不是静默无反应。
+// 人员管理侧的实现见 components/CertGapDialog.vue。
+function openCertGap() {
+  ElMessage.info('设备「证件查漏」功能建设中，将在后续版本补充');
+}
 
 // 检测站 / 检测线筛选选项
 const departments = ref<string[]>([]);
@@ -169,7 +199,7 @@ async function loadOptions() {
 const dialogVisible = ref(false);
 const saving = ref(false);
 const formRef = ref<FormInstance>();
-const form = reactive<any>({ name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', remark: '' });
+const form = reactive<any>({ name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', calibrationUnit: '', calibrationFee: '', remark: '' });
 const permFlag = ref(false);
 function onPermToggle(v: boolean) { if (v) form.inspectionExpiryDate = ''; }
 const rules: FormRules = {
@@ -205,7 +235,7 @@ async function loadData() {
 }
 function resetQuery() { query.department = ''; query.line = ''; query.name = ''; query.status = ''; query.page = 1; loadData(); }
 function goDetail(id: number) { router.push(`/equipment/${id}`); }
-function resetForm() { Object.assign(form, { name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', remark: '' }); permFlag.value = false; }
+function resetForm() { Object.assign(form, { name: '', serialNumber: '', department: '', line: '', model: '', manufacturer: '', status: 'in_use', inspectionCertNumber: '', inspectionDate: '', inspectionExpiryDate: '', calibrationUnit: '', calibrationFee: '', remark: '' }); permFlag.value = false; }
 
 async function save() {
   await formRef.value?.validate();

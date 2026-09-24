@@ -7,6 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/zxjyyh/mds/internal/database"
+	"github.com/zxjyyh/mds/internal/scope"
 )
 
 // openCertClearTestDB 建干净库并完成迁移，供清空预留证件回归测试使用。
@@ -46,7 +47,7 @@ func TestClearReservedCert(t *testing.T) {
 	svc := &PersonnelService{DB: db}
 
 	// 1) 清空已上传的预留行：字段复位 + 文件记录删除 + 行本身保留
-	if err := svc.ClearReservedCert(1); err != nil {
+	if err := svc.ClearReservedCert(scope.All(), 1); err != nil {
 		t.Fatalf("ClearReservedCert(1) 失败: %v", err)
 	}
 	var cert struct {
@@ -74,12 +75,12 @@ func TestClearReservedCert(t *testing.T) {
 	}
 
 	// 2) 清空无内容的预留行：幂等、不报错
-	if err := svc.ClearReservedCert(2); err != nil {
+	if err := svc.ClearReservedCert(scope.All(), 2); err != nil {
 		t.Fatalf("清空空预留行失败: %v", err)
 	}
 
 	// 3) 自由添加的证书走 ClearReservedCert 应被拒绝（应走整行删除）
-	if err := svc.ClearReservedCert(3); err == nil {
+	if err := svc.ClearReservedCert(scope.All(), 3); err == nil {
 		t.Fatal("自由添加的证件不应允许 ClearReservedCert，应报错")
 	}
 

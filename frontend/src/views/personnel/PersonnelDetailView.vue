@@ -120,26 +120,52 @@
               </el-col>
             </el-row>
             <el-form-item label="安检证">
-              <el-row :gutter="8" style="width:100%">
-                <el-col :span="10"><el-input v-model="form.securityCertNumber" placeholder="编号" /></el-col>
-                <el-col :span="14">
-                  <div style="display:flex;align-items:center;gap:4px">
-                    <el-date-picker v-model="form.securityCertDate" type="date" value-format="YYYY-MM-DD" style="flex:1" :disabled="permFlags.securityCert" placeholder="到期时间" />
-                    <el-checkbox v-model="permFlags.securityCert" style="flex-shrink:0" @change="onPermChange('securityCertDate', permFlags.securityCert)">长期有效</el-checkbox>
-                  </div>
-                </el-col>
-              </el-row>
+              <div style="width:100%">
+                <el-row :gutter="8">
+                  <el-col :span="10"><el-input v-model="form.securityCertNumber" placeholder="编号" /></el-col>
+                  <el-col :span="14">
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <el-date-picker v-model="form.securityCertDate" type="date" value-format="YYYY-MM-DD" style="flex:1" :disabled="permFlags.securityCert" placeholder="到期时间" />
+                      <el-checkbox v-model="permFlags.securityCert" style="flex-shrink:0" @change="onPermChange('securityCertDate', permFlags.securityCert)">长期有效</el-checkbox>
+                    </div>
+                  </el-col>
+                </el-row>
+                <el-select
+                  v-model="form.securityPositions"
+                  multiple
+                  clearable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="安检岗位（非必选，可多选）"
+                  style="width:100%;margin-top:6px"
+                >
+                  <el-option v-for="p in SECURITY_POSITION_OPTIONS" :key="p" :label="p" :value="p" />
+                </el-select>
+              </div>
             </el-form-item>
             <el-form-item label="环保证">
-              <el-row :gutter="8" style="width:100%">
-                <el-col :span="10"><el-input v-model="form.envCertNumber" placeholder="编号" /></el-col>
-                <el-col :span="14">
-                  <div style="display:flex;align-items:center;gap:4px">
-                    <el-date-picker v-model="form.envCertDate" type="date" value-format="YYYY-MM-DD" style="flex:1" :disabled="permFlags.envCert" placeholder="到期时间" />
-                    <el-checkbox v-model="permFlags.envCert" style="flex-shrink:0" @change="onPermChange('envCertDate', permFlags.envCert)">长期有效</el-checkbox>
-                  </div>
-                </el-col>
-              </el-row>
+              <div style="width:100%">
+                <el-row :gutter="8">
+                  <el-col :span="10"><el-input v-model="form.envCertNumber" placeholder="编号" /></el-col>
+                  <el-col :span="14">
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <el-date-picker v-model="form.envCertDate" type="date" value-format="YYYY-MM-DD" style="flex:1" :disabled="permFlags.envCert" placeholder="到期时间" />
+                      <el-checkbox v-model="permFlags.envCert" style="flex-shrink:0" @change="onPermChange('envCertDate', permFlags.envCert)">长期有效</el-checkbox>
+                    </div>
+                  </el-col>
+                </el-row>
+                <el-select
+                  v-model="form.envPositions"
+                  multiple
+                  clearable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="环保岗位（非必选，可多选）"
+                  style="width:100%;margin-top:6px"
+                >
+                  <el-option v-for="p in ENV_POSITION_OPTIONS" :key="p" :label="p" :value="p" />
+                </el-select>
+              </div>
             </el-form-item>
             <el-form-item label="查验证">
               <el-row :gutter="8" style="width:100%">
@@ -264,7 +290,7 @@ import ExpiryBadge from '../../components/ExpiryBadge.vue';
 import FileUploader from '../../components/FileUploader.vue';
 import FilePreview from '../../components/FilePreview.vue';
 import dayjs from 'dayjs';
-import { EDUCATION_OPTIONS } from '../../utils/constants';
+import { EDUCATION_OPTIONS, SECURITY_POSITION_OPTIONS, ENV_POSITION_OPTIONS, joinMultiSelect, splitMultiSelect } from '../../utils/constants';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -289,6 +315,8 @@ const form = reactive<any>({
   driverLicenseExpiry: '', idCardExpiry: '', graduationDate: '',
   securityCertDate: '', envCertDate: '', inspectionDate: '', internalAuditorDate: '',
   securityCertNumber: '', envCertNumber: '', inspectionCertNumber: '', internalAuditorNumber: '',
+  // 岗位是多选，表单里保持数组；提交时用 joinMultiSelect 转成逗号分隔字符串
+  securityPositions: [], envPositions: [],
   status: 'active', remark: '', photoFileId: 0,
 });
 const rules: FormRules = {
@@ -299,6 +327,25 @@ const rules: FormRules = {
 const permFlags = reactive({ securityCert: false, envCert: false, inspection: false, internalAuditor: false, driverLicense: false, idCard: false });
 function onPermChange(field: string, checked: boolean) {
   if (checked) (form as any)[field] = '';
+}
+
+/**
+ * 复位全部「长期有效」标记。
+ *
+ * 刻意**不**按"日期是否为空"自动勾选（用户 2026-09-24 要求）。原实现是
+ * `permFlags.X = !d.XDate` —— 从没填过日期的证书一打开就显示成「长期有效」，
+ * 同时日期框被 disabled，想填日期还得先取消勾选，很容易被误解成"系统自动认定长期"。
+ *
+ * 现在的语义：**没填日期就是空**，只有使用者主动勾选才表示长期有效。
+ * 每次载入记录都必须显式复位，否则上一份记录勾过的状态会带到下一个人身上。
+ */
+function resetPermFlags() {
+  permFlags.securityCert = false;
+  permFlags.envCert = false;
+  permFlags.inspection = false;
+  permFlags.internalAuditor = false;
+  permFlags.driverLicense = false;
+  permFlags.idCard = false;
 }
 
 function fillForm(d: any) {
@@ -326,23 +373,25 @@ function fillForm(d: any) {
     inspectionCertNumber: d.inspectionCertNumber || '',
     internalAuditorDate: d.internalAuditorDate ? d.internalAuditorDate.substring(0, 10) : '',
     internalAuditorNumber: d.internalAuditorNumber || '',
+    securityPositions: splitMultiSelect(d.securityPositions),
+    envPositions: splitMultiSelect(d.envPositions),
     status: d.status || 'active',
     remark: d.remark || '',
     photoFileId: d.photoFileId || 0,
   });
-  permFlags.securityCert = !d.securityCertDate;
-  permFlags.envCert = !d.envCertDate;
-  permFlags.inspection = !d.inspectionDate;
-  permFlags.internalAuditor = !d.internalAuditorDate;
-  permFlags.driverLicense = !d.driverLicenseExpiry;
-  permFlags.idCard = !d.idCardExpiry;
+  // 不按日期是否为空自动勾选「长期有效」，一律回到"空"（说明见 resetPermFlags）
+  resetPermFlags();
 }
 
 async function saveInfo() {
   await formRef.value?.validate();
   saving.value = true;
   try {
-    const payload = { ...form };
+    const payload: any = {
+      ...form,
+      securityPositions: joinMultiSelect(form.securityPositions),
+      envPositions: joinMultiSelect(form.envPositions),
+    };
     if (removePhotoFlag.value) payload.photoFileId = null;
     else if (!payload.photoFileId) delete payload.photoFileId;
     await personnelApi.update(id, payload);
@@ -419,7 +468,8 @@ function openEditCert(row: any) {
     expiryDate: row.expiryDate ? row.expiryDate.substring(0, 10) : '',
     fileId: row.fileId || 0, remark: row.remark || '',
   });
-  certPermFlag.value = !row.expiryDate;
+  // 同样不按到期日是否为空自动勾「长期有效」：没填日期就是空（2026-09-24 统一口径）
+  certPermFlag.value = false;
   certDialog.value = true;
 }
 

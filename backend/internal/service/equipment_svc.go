@@ -2,16 +2,18 @@ package service
 
 import (
 	"fmt"
-	"github.com/zxjyyh/mds/internal/models"
-	"github.com/zxjyyh/mds/internal/utils"
 	"os"
+
+	"github.com/zxjyyh/mds/internal/models"
+	"github.com/zxjyyh/mds/internal/scope"
+	"github.com/zxjyyh/mds/internal/utils"
 
 	"github.com/jmoiron/sqlx"
 )
 
 type EquipmentService struct{ DB *sqlx.DB }
 
-func (s *EquipmentService) List(department, line, name, status string, page, pageSize int) ([]models.Equipment, int, error) {
+func (s *EquipmentService) List(sc *scope.Scope, department, line, name, status string, page, pageSize int) ([]models.Equipment, int, error) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if department != "" {
@@ -29,6 +31,11 @@ func (s *EquipmentService) List(department, line, name, status string, page, pag
 	if status != "" {
 		where += " AND e.status=?"
 		args = append(args, status)
+	}
+	// 数据隔离：受限账号只返回可见公司的设备（不受请求筛选参数影响）
+	if frag, fargs := sc.SQLFilter("e.department"); frag != "" {
+		where += frag
+		args = append(args, fargs...)
 	}
 
 	var total int
@@ -59,9 +66,17 @@ func (s *EquipmentService) List(department, line, name, status string, page, pag
 }
 
 // Options 返回用于筛选下拉框的检测站列表，以及各检测站下的检测线列表。
-func (s *EquipmentService) Options() ([]string, map[string][]string, error) {
+// 会话范围受限时只返回可见公司 —— 否则下拉里会露出别家公司的名字。
+func (s *EquipmentService) Options(sc *scope.Scope) ([]string, map[string][]string, error) {
 	departments := []string{}
-	if err := s.DB.Select(&departments, `SELECT DISTINCT department FROM equipment WHERE department IS NOT NULL AND department != '' ORDER BY department`); err != nil {
+	dq := "SELECT DISTINCT department FROM equipment WHERE department IS NOT NULL AND department != ''"
+	dargs := []interface{}{}
+	if frag, fargs := sc.SQLFilter("department"); frag != "" {
+		dq += frag
+		dargs = append(dargs, fargs...)
+	}
+	dq += " ORDER BY department"
+	if err := s.DB.Select(&departments, dq, dargs...); err != nil {
 		return nil, nil, err
 	}
 
@@ -70,7 +85,14 @@ func (s *EquipmentService) Options() ([]string, map[string][]string, error) {
 		Line       string `db:"line"`
 	}
 	var rows []lineRow
-	if err := s.DB.Select(&rows, `SELECT DISTINCT department, line FROM equipment WHERE line IS NOT NULL AND line != '' ORDER BY department, line`); err != nil {
+	lq := "SELECT DISTINCT department, line FROM equipment WHERE line IS NOT NULL AND line != ''"
+	largs := []interface{}{}
+	if frag, fargs := sc.SQLFilter("department"); frag != "" {
+		lq += frag
+		largs = append(largs, fargs...)
+	}
+	lq += " ORDER BY department, line"
+	if err := s.DB.Select(&rows, lq, largs...); err != nil {
 		return nil, nil, err
 	}
 
@@ -81,7 +103,35 @@ func (s *EquipmentService) Options() ([]string, map[string][]string, error) {
 	return departments, lines, nil
 }
 
-func (s *EquipmentService) GetByID(id int) (*models.Equipment, error) {
+// assertEquipment 确认该设备存在且在当前账号的可见范围内。
+func (s *EquipmentService) assertEquipment(sc *scope.Scope, id int) error {
+	var dept *string
+	if err := s.DB.Get(&dept, "SELECT department FROM equipment WHERE id=?", id); err != nil {
+		return err
+	}
+	d := ""
+	if dept != nil {
+		d = *dept
+	}
+	if !sc.Allows(d) {
+		return fmt.Errorf("%w：该设备不属于你可访问的公司", scope.ErrForbidden)
+	}
+	return nil
+}
+
+// assertEquipmentCert 由设备证件 ID 反查所属设备，再校验归属。
+func (s *EquipmentService) assertEquipmentCert(sc *scope.Scope, certID int) error {
+	var eid int
+	if err := s.DB.Get(&eid, "SELECT equipment_id FROM equipment_certificates WHERE id=?", certID); err != nil {
+		return err
+	}
+	return s.assertEquipment(sc, eid)
+}
+
+func (s *EquipmentService) GetByID(sc *scope.Scope, id int) (*models.Equipment, error) {
+	if err := s.assertEquipment(sc, id); err != nil {
+		return nil, err
+	}
 	var e models.Equipment
 	if err := s.DB.Get(&e, "SELECT * FROM equipment WHERE id=?", id); err != nil {
 		return nil, err
@@ -101,13 +151,17 @@ func (s *EquipmentService) GetByID(id int) (*models.Equipment, error) {
 	return &e, nil
 }
 
-func (s *EquipmentService) Create(data map[string]interface{}) (*models.Equipment, error) {
+func (s *EquipmentService) Create(sc *scope.Scope, data map[string]interface{}) (*models.Equipment, error) {
+	if !sc.Allows(strOf(data["department"])) {
+		return nil, fmt.Errorf("%w：只能把设备归入你有权限的公司", scope.ErrForbidden)
+	}
 	now := utils.NowString()
-	res, err := s.DB.Exec(`INSERT INTO equipment (name, serial_number, department, line, model, manufacturer, status, remark, inspection_cert_number, inspection_date, inspection_expiry_date, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	res, err := s.DB.Exec(`INSERT INTO equipment (name, serial_number, department, line, model, manufacturer, status, remark, inspection_cert_number, inspection_date, inspection_expiry_date, calibration_unit, calibration_fee, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		data["name"], data["serialNumber"], data["department"], data["line"],
 		data["model"], data["manufacturer"], data["status"], data["remark"],
-		data["inspectionCertNumber"], data["inspectionDate"], data["inspectionExpiryDate"], now, now)
+		data["inspectionCertNumber"], data["inspectionDate"], data["inspectionExpiryDate"],
+		data["calibrationUnit"], data["calibrationFee"], now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -118,16 +172,28 @@ func (s *EquipmentService) Create(data map[string]interface{}) (*models.Equipmen
 	return &e, nil
 }
 
-func (s *EquipmentService) Update(id int, data map[string]interface{}) error {
+func (s *EquipmentService) Update(sc *scope.Scope, id int, data map[string]interface{}) error {
+	if err := s.assertEquipment(sc, id); err != nil {
+		return err
+	}
+	if _, has := data["department"]; has {
+		if !sc.Allows(strOf(data["department"])) {
+			return fmt.Errorf("%w：不能把设备改到你没有权限的公司", scope.ErrForbidden)
+		}
+	}
 	now := utils.NowString()
-	_, err := s.DB.Exec(`UPDATE equipment SET name=?, serial_number=?, department=?, line=?, model=?, manufacturer=?, status=?, remark=?, inspection_cert_number=?, inspection_date=?, inspection_expiry_date=?, updated_at=? WHERE id=?`,
+	_, err := s.DB.Exec(`UPDATE equipment SET name=?, serial_number=?, department=?, line=?, model=?, manufacturer=?, status=?, remark=?, inspection_cert_number=?, inspection_date=?, inspection_expiry_date=?, calibration_unit=?, calibration_fee=?, updated_at=? WHERE id=?`,
 		data["name"], data["serialNumber"], data["department"], data["line"],
 		data["model"], data["manufacturer"], data["status"], data["remark"],
-		data["inspectionCertNumber"], data["inspectionDate"], data["inspectionExpiryDate"], now, id)
+		data["inspectionCertNumber"], data["inspectionDate"], data["inspectionExpiryDate"],
+		data["calibrationUnit"], data["calibrationFee"], now, id)
 	return err
 }
 
-func (s *EquipmentService) Delete(id int) error {
+func (s *EquipmentService) Delete(sc *scope.Scope, id int) error {
+	if err := s.assertEquipment(sc, id); err != nil {
+		return err
+	}
 	var certFileIDs []*int
 	s.DB.Select(&certFileIDs, "SELECT file_id FROM equipment_certificates WHERE equipment_id=? AND file_id IS NOT NULL", id)
 	for _, fid := range certFileIDs {
@@ -147,7 +213,10 @@ func (s *EquipmentService) Delete(id int) error {
 
 // ---- Certificate operations ----
 
-func (s *EquipmentService) AddCert(equipmentID int, data map[string]interface{}) (*models.EquipmentCertificate, error) {
+func (s *EquipmentService) AddCert(sc *scope.Scope, equipmentID int, data map[string]interface{}) (*models.EquipmentCertificate, error) {
+	if err := s.assertEquipment(sc, equipmentID); err != nil {
+		return nil, err
+	}
 	now := utils.NowString()
 	if data["expiryDate"] == "" {
 		data["expiryDate"] = nil
@@ -169,7 +238,10 @@ func (s *EquipmentService) AddCert(equipmentID int, data map[string]interface{})
 	return &cert, nil
 }
 
-func (s *EquipmentService) UpdateCert(certID int, data map[string]interface{}) error {
+func (s *EquipmentService) UpdateCert(sc *scope.Scope, certID int, data map[string]interface{}) error {
+	if err := s.assertEquipmentCert(sc, certID); err != nil {
+		return err
+	}
 	now := utils.NowString()
 	if data["expiryDate"] == "" {
 		data["expiryDate"] = nil
@@ -179,7 +251,10 @@ func (s *EquipmentService) UpdateCert(certID int, data map[string]interface{}) e
 	return err
 }
 
-func (s *EquipmentService) DeleteCert(certID int) error {
+func (s *EquipmentService) DeleteCert(sc *scope.Scope, certID int) error {
+	if err := s.assertEquipmentCert(sc, certID); err != nil {
+		return err
+	}
 	var fileID *int
 	s.DB.Get(&fileID, "SELECT file_id FROM equipment_certificates WHERE id=?", certID)
 	if fileID != nil {

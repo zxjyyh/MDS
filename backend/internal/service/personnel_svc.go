@@ -2,18 +2,20 @@ package service
 
 import (
 	"fmt"
-	"github.com/zxjyyh/mds/internal/models"
-	"github.com/zxjyyh/mds/internal/utils"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/zxjyyh/mds/internal/models"
+	"github.com/zxjyyh/mds/internal/scope"
+	"github.com/zxjyyh/mds/internal/utils"
 
 	"github.com/jmoiron/sqlx"
 )
 
 type PersonnelService struct{ DB *sqlx.DB }
 
-func (s *PersonnelService) List(keyword, department, status string, page, pageSize int) ([]models.Personnel, int, error) {
+func (s *PersonnelService) List(sc *scope.Scope, keyword, department, status string, page, pageSize int) ([]models.Personnel, int, error) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if keyword != "" {
@@ -27,6 +29,12 @@ func (s *PersonnelService) List(keyword, department, status string, page, pageSi
 	if status != "" {
 		where += " AND p.status=?"
 		args = append(args, status)
+	}
+	// 数据隔离：受限账号只返回可见公司的数据。
+	// 放在最后且**不受请求里的 department 参数影响** —— 用户自己传的筛选条件不能扩大范围。
+	if frag, fargs := sc.SQLFilter("p.department"); frag != "" {
+		where += frag
+		args = append(args, fargs...)
 	}
 
 	var total int
@@ -90,9 +98,17 @@ func (s *PersonnelService) List(keyword, department, status string, page, pageSi
 }
 
 // Options 返回用于筛选下拉框的检测站去重列表（取自人员表自身）。
-func (s *PersonnelService) Options() ([]string, error) {
+// 会话范围受限时只返回可见公司 —— 否则下拉里会露出别家公司的名字。
+func (s *PersonnelService) Options(sc *scope.Scope) ([]string, error) {
 	departments := []string{}
-	if err := s.DB.Select(&departments, `SELECT DISTINCT department FROM personnel WHERE department IS NOT NULL AND department != '' ORDER BY department`); err != nil {
+	q := `SELECT DISTINCT department FROM personnel WHERE department IS NOT NULL AND department != ''`
+	args := []interface{}{}
+	if frag, fargs := sc.SQLFilter("department"); frag != "" {
+		q += frag
+		args = append(args, fargs...)
+	}
+	q += " ORDER BY department"
+	if err := s.DB.Select(&departments, q, args...); err != nil {
 		return nil, err
 	}
 	return departments, nil
@@ -115,7 +131,40 @@ func (s *PersonnelService) filesByIDs(ids []int) (map[int]*models.UploadedFile, 
 	return m, nil
 }
 
-func (s *PersonnelService) GetByID(id int) (*models.Personnel, error) {
+// ---- 数据隔离（按公司）----
+//
+// 约定：所有"按 ID 取/改/删"的入口都必须先过 assert* 校验归属，
+// 否则受限账号改一下 URL 里的 id 就能越权（列表有过滤、详情没有 = 等于没做隔离）。
+
+// assertPersonnel 确认该人员存在且在当前账号的可见范围内。
+func (s *PersonnelService) assertPersonnel(sc *scope.Scope, id int) error {
+	var dept *string
+	if err := s.DB.Get(&dept, "SELECT department FROM personnel WHERE id=?", id); err != nil {
+		return err
+	}
+	d := ""
+	if dept != nil {
+		d = *dept
+	}
+	if !sc.Allows(d) {
+		return fmt.Errorf("%w：该人员不属于你可访问的公司", scope.ErrForbidden)
+	}
+	return nil
+}
+
+// assertCert 由证件 ID 反查所属人员，再校验归属。
+func (s *PersonnelService) assertCert(sc *scope.Scope, certID int) error {
+	var pid int
+	if err := s.DB.Get(&pid, "SELECT personnel_id FROM personnel_certificates WHERE id=?", certID); err != nil {
+		return err
+	}
+	return s.assertPersonnel(sc, pid)
+}
+
+func (s *PersonnelService) GetByID(sc *scope.Scope, id int) (*models.Personnel, error) {
+	if err := s.assertPersonnel(sc, id); err != nil {
+		return nil, err
+	}
 	var p models.Personnel
 	if err := s.DB.Get(&p, "SELECT * FROM personnel WHERE id=?", id); err != nil {
 		return nil, err
@@ -144,15 +193,21 @@ func (s *PersonnelService) GetByID(id int) (*models.Personnel, error) {
 	return &p, nil
 }
 
-func (s *PersonnelService) Create(data map[string]interface{}, userID int) (*models.Personnel, error) {
+func (s *PersonnelService) Create(sc *scope.Scope, data map[string]interface{}, userID int) (*models.Personnel, error) {
+	// 受限账号只能把人员建到自己可访问的公司；也不允许建"无公司"的人员
+	// （那会导致这条数据对创建者本人都不可见）。
+	if !sc.Allows(strOf(data["department"])) {
+		return nil, fmt.Errorf("%w：只能把人员归入你有权限的公司", scope.ErrForbidden)
+	}
 	now := utils.NowString()
 
-	res, err := s.DB.Exec(`INSERT INTO personnel (name, gender, id_card, phone, position, department, address, entry_date, education, school, major, driver_license, driver_license_expiry, id_card_expiry, graduation_date, security_cert_date, security_cert_number, env_cert_date, env_cert_number, inspection_date, inspection_cert_number, internal_auditor_number, internal_auditor_date, status, photo_file_id, remark, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	res, err := s.DB.Exec(`INSERT INTO personnel (name, gender, id_card, phone, position, department, address, entry_date, education, school, major, driver_license, driver_license_expiry, id_card_expiry, graduation_date, security_cert_date, security_cert_number, security_positions, env_cert_date, env_cert_number, env_positions, inspection_date, inspection_cert_number, internal_auditor_number, internal_auditor_date, status, photo_file_id, remark, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		data["name"], data["gender"], data["idCard"], data["phone"], data["position"],
 		data["department"], data["address"], data["entryDate"], data["education"], data["school"], data["major"], data["driverLicense"],
 		data["driverLicenseExpiry"], data["idCardExpiry"], data["graduationDate"],
-		data["securityCertDate"], data["securityCertNumber"], data["envCertDate"], data["envCertNumber"],
+		data["securityCertDate"], data["securityCertNumber"], data["securityPositions"],
+		data["envCertDate"], data["envCertNumber"], data["envPositions"],
 		data["inspectionDate"], data["inspectionCertNumber"], data["internalAuditorNumber"], data["internalAuditorDate"],
 		data["status"], data["photoFileId"], data["remark"], now, now)
 	if err != nil {
@@ -179,19 +234,33 @@ func (s *PersonnelService) seedReservedCerts(personnelID int) {
 	}
 }
 
-func (s *PersonnelService) Update(id int, data map[string]interface{}) error {
+func (s *PersonnelService) Update(sc *scope.Scope, id int, data map[string]interface{}) error {
+	// 两道校验：原记录必须在可见范围内（防越权改），
+	// 且改后的公司也必须可见（防把数据搬到自己看不见的公司里，那等于把数据弄丢）。
+	if err := s.assertPersonnel(sc, id); err != nil {
+		return err
+	}
+	if _, has := data["department"]; has {
+		if !sc.Allows(strOf(data["department"])) {
+			return fmt.Errorf("%w：不能把人员改到你没有权限的公司", scope.ErrForbidden)
+		}
+	}
 	now := utils.NowString()
-	_, err := s.DB.Exec(`UPDATE personnel SET name=?, gender=?, id_card=?, phone=?, position=?, department=?, address=?, entry_date=?, education=?, school=?, major=?, driver_license=?, driver_license_expiry=?, id_card_expiry=?, graduation_date=?, security_cert_date=?, security_cert_number=?, env_cert_date=?, env_cert_number=?, inspection_date=?, inspection_cert_number=?, internal_auditor_number=?, internal_auditor_date=?, status=?, photo_file_id=?, remark=?, updated_at=? WHERE id=?`,
+	_, err := s.DB.Exec(`UPDATE personnel SET name=?, gender=?, id_card=?, phone=?, position=?, department=?, address=?, entry_date=?, education=?, school=?, major=?, driver_license=?, driver_license_expiry=?, id_card_expiry=?, graduation_date=?, security_cert_date=?, security_cert_number=?, security_positions=?, env_cert_date=?, env_cert_number=?, env_positions=?, inspection_date=?, inspection_cert_number=?, internal_auditor_number=?, internal_auditor_date=?, status=?, photo_file_id=?, remark=?, updated_at=? WHERE id=?`,
 		data["name"], data["gender"], data["idCard"], data["phone"], data["position"],
 		data["department"], data["address"], data["entryDate"], data["education"], data["school"], data["major"], data["driverLicense"],
 		data["driverLicenseExpiry"], data["idCardExpiry"], data["graduationDate"],
-		data["securityCertDate"], data["securityCertNumber"], data["envCertDate"], data["envCertNumber"],
+		data["securityCertDate"], data["securityCertNumber"], data["securityPositions"],
+		data["envCertDate"], data["envCertNumber"], data["envPositions"],
 		data["inspectionDate"], data["inspectionCertNumber"], data["internalAuditorNumber"], data["internalAuditorDate"],
 		data["status"], data["photoFileId"], data["remark"], now, id)
 	return err
 }
 
-func (s *PersonnelService) Delete(id int) error {
+func (s *PersonnelService) Delete(sc *scope.Scope, id int) error {
+	if err := s.assertPersonnel(sc, id); err != nil {
+		return err
+	}
 	// Get all certificate file IDs and delete physical files
 	var certFileIDs []*int
 	s.DB.Select(&certFileIDs, "SELECT file_id FROM personnel_certificates WHERE personnel_id=? AND file_id IS NOT NULL", id)
@@ -224,7 +293,10 @@ func (s *PersonnelService) Delete(id int) error {
 
 // ---- Certificate operations ----
 
-func (s *PersonnelService) AddCert(personnelID int, data map[string]interface{}) (*models.PersonnelCertificate, error) {
+func (s *PersonnelService) AddCert(sc *scope.Scope, personnelID int, data map[string]interface{}) (*models.PersonnelCertificate, error) {
+	if err := s.assertPersonnel(sc, personnelID); err != nil {
+		return nil, err
+	}
 	now := utils.NowString()
 	name, _ := data["certName"].(string)
 	if models.IsPersonnelReservedCertName(name) {
@@ -257,7 +329,10 @@ func (s *PersonnelService) AddCert(personnelID int, data map[string]interface{})
 	return &cert, nil
 }
 
-func (s *PersonnelService) UpdateCert(certID int, data map[string]interface{}) error {
+func (s *PersonnelService) UpdateCert(sc *scope.Scope, certID int, data map[string]interface{}) error {
+	if err := s.assertCert(sc, certID); err != nil {
+		return err
+	}
 	now := utils.NowString()
 	var cur struct {
 		CertName string `db:"cert_name"`
@@ -276,7 +351,10 @@ func (s *PersonnelService) UpdateCert(certID int, data map[string]interface{}) e
 	return err
 }
 
-func (s *PersonnelService) DeleteCert(certID int) error {
+func (s *PersonnelService) DeleteCert(sc *scope.Scope, certID int) error {
+	if err := s.assertCert(sc, certID); err != nil {
+		return err
+	}
 	var cur struct {
 		CertName string `db:"cert_name"`
 		FileID   *int   `db:"file_id"`
@@ -303,7 +381,10 @@ func (s *PersonnelService) DeleteCert(certID int) error {
 // 删除已上传的附件（物理文件 + uploaded_files 记录），并把编号/签发日期/到期日期/备注
 // 全部复位为空，让该行回到"待上传"初始状态；证书行本身保留（名称即锚点，不可删）。
 // 非预留名称调用本方法视为误用，直接报错（应走 DeleteCert 整行删除）。
-func (s *PersonnelService) ClearReservedCert(certID int) error {
+func (s *PersonnelService) ClearReservedCert(sc *scope.Scope, certID int) error {
+	if err := s.assertCert(sc, certID); err != nil {
+		return err
+	}
 	var cur struct {
 		CertName string `db:"cert_name"`
 		FileID   *int   `db:"file_id"`
@@ -350,8 +431,9 @@ type PersonnelCertExportItem struct {
 	StoragePath  string  `db:"storage_path"`
 }
 
-// buildPersonnelWhere 按检测站/在职状态拼 personnel 过滤条件。
-func buildPersonnelWhere(department, status string) (string, []interface{}) {
+// buildPersonnelWhere 按检测站/在职状态拼 personnel 过滤条件，并叠加账号的可见范围。
+// 可见范围**不受传入的 department 影响** —— 请求里的筛选条件只能缩小、不能扩大范围。
+func buildPersonnelWhere(sc *scope.Scope, department, status string) (string, []interface{}) {
 	where := "WHERE 1=1"
 	args := []interface{}{}
 	if department != "" {
@@ -362,12 +444,16 @@ func buildPersonnelWhere(department, status string) (string, []interface{}) {
 		where += " AND p.status = ?"
 		args = append(args, status)
 	}
+	if frag, fargs := sc.SQLFilter("p.department"); frag != "" {
+		where += frag
+		args = append(args, fargs...)
+	}
 	return where, args
 }
 
 // PersonnelByScope 返回按检测站/在职状态过滤的全部人员（含已离职，供缺证统计）。
-func (s *PersonnelService) PersonnelByScope(department, status string) ([]PersonnelScopeItem, error) {
-	where, args := buildPersonnelWhere(department, status)
+func (s *PersonnelService) PersonnelByScope(sc *scope.Scope, department, status string) ([]PersonnelScopeItem, error) {
+	where, args := buildPersonnelWhere(sc, department, status)
 	rows := []PersonnelScopeItem{}
 	err := s.DB.Select(&rows, `SELECT p.id, p.name, p.department, p.status FROM personnel p `+where+
 		` ORDER BY p.department IS NULL, p.department, p.name, p.id`, args...)
@@ -379,7 +465,7 @@ func (s *PersonnelService) PersonnelByScope(department, status string) ([]Person
 
 // CertFilesByScope 返回范围内所有人员持有的指定名称证书的附件文件行。
 // cert_name 白名单由调用方（handler）把关；此处仍参数化查询，杜绝注入。
-func (s *PersonnelService) CertFilesByScope(department, status, certName string) ([]PersonnelCertExportItem, error) {
+func (s *PersonnelService) CertFilesByScope(sc *scope.Scope, department, status, certName string) ([]PersonnelCertExportItem, error) {
 	where := "pc.cert_name = ?"
 	args := []interface{}{certName}
 	if department != "" {
@@ -389,6 +475,10 @@ func (s *PersonnelService) CertFilesByScope(department, status, certName string)
 	if status != "" {
 		where += " AND p.status = ?"
 		args = append(args, status)
+	}
+	if frag, fargs := sc.SQLFilter("p.department"); frag != "" {
+		where += frag
+		args = append(args, fargs...)
 	}
 	rows := []PersonnelCertExportItem{}
 	err := s.DB.Select(&rows, `SELECT p.id AS personnel_id, p.name, p.department, p.status,
@@ -456,9 +546,9 @@ type certGapPerson struct {
 // CertGap 按检测站/在职状态列出人员的指定证件状态。
 // department、status 为空表示不限范围；certNames 为空表示全部支持的证书类型。
 // 返回：归一化后的证书名列表（顺序即列顺序）、逐人结果、三态计数汇总。
-func (s *PersonnelService) CertGap(department, status string, certNames []string) ([]string, []CertGapRow, map[string]int, error) {
+func (s *PersonnelService) CertGap(sc *scope.Scope, department, status string, certNames []string) ([]string, []CertGapRow, map[string]int, error) {
 	names := normalizeCertGapNames(certNames)
-	where, args := buildPersonnelWhere(department, status)
+	where, args := buildPersonnelWhere(sc, department, status)
 
 	people := []certGapPerson{}
 	err := s.DB.Select(&people, `SELECT p.id, p.name, p.department, p.status

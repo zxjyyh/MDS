@@ -16,7 +16,7 @@
 | 现有查询**已支持** `department` 过滤参数，但它是**用户可选的筛选项**，不是安全边界 | 请求里不传就等于不限 |
 | `middleware.Auth` 只往 context 放 `userID / username / role` | 没有公司维度 |
 | **`FileService.CanAccess` 明确假设「任何登录用户可查看全部业务数据」** | 见 `file_svc.go` 该函数上方注释。是本次改造必须推翻的核心假设 |
-| 已有 2 个真实公司（宏兴 21 人 / 顺安 10 人），1 个非管理员账号 | 隔离需求真实存在 |
+| 生产库里已有多家公司的数据，且存在**非管理员账号** | 隔离需求真实存在，不是假想 |
 
 ## 3. 核心设计
 
@@ -101,13 +101,19 @@ CREATE INDEX IF NOT EXISTS idx_user_companies_user ON user_companies(user_id);
 
 `GET /api/companies/options`（`company_svc.go` `Options`）按 scope 过滤，只返回用户可见的公司。
 
+**公司名并集（关键）**：权限下拉与「所属检测站」下拉的选项统一为
+`companies 表（已登记）∪ 数据里实际出现过的 department`（后者在界面上标注「未登记」）。
+只用 `companies` 会漏掉历史数据里未登记的公司名 —— 本项目实际就出现过
+「某公司只在人员数据的 `department` 里、公司档案里却没有」的情况，补登记后才一致。
+
 ### 4.6 前端
 
 | 文件 | 改动 |
 |---|---|
-| `views/system/UserListView.vue` | 新增/编辑用户弹窗加「公司权限」多选（数据源 `companies`）；列表列显示已配公司 |
+| `views/system/UserListView.vue` | 新增/编辑用户弹窗加「公司权限」多选（数据源为上述并集）；列表列显示已配公司 |
 | `api/user.ts` | 加 `getUserCompanies` / `setUserCompanies` |
-| `views/personnel/PersonnelListView.vue`、`views/equipment/EquipmentListView.vue` | 检测站下拉只用 scope 内的公司 |
+| **「所属检测站」4 处改为下拉选择**（方案 C，2026-09-21 确认） | `personnel/PersonnelListView.vue`（新增弹窗）、`personnel/PersonnelDetailView.vue`（编辑）、`equipment/EquipmentListView.vue`（新增弹窗）、`equipment/EquipmentDetailView.vue`（编辑）。**不能手打新名字**；选项 = 已登记公司 ∪ 已出现过的名称（标注「未登记」）。目的：从源头杜绝公司名笔误导致受限账号静默漏人。现有数据不受影响（下拉已包含数据里已有的名称） |
+| `views/personnel/PersonnelListView.vue`、`views/equipment/EquipmentListView.vue` | 列表筛选的公司下拉只用 scope 内的公司 |
 | `components/materials/*`（劳动合同、证件打包、理工报名） | 公司下拉同过滤；理工报名的人员候选里不能出现 scope 外的人 |
 | `stores/auth.ts` | 登录/刷新后缓存自身 scope，供上述过滤使用 |
 
@@ -120,7 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_user_companies_user ON user_companies(user_id);
    - `GetByID` / `Update` / `Delete` 对 scope 外 ID 返回越权错误
    - `CanAccess`：本公司的文件 ✅、别家公司的文件 ❌、游离文件 ❌、自己上传的 ✅
    - 空 scope（未配置公司）= 不受限
-2. **接口级测试**：以「王婉婷 + 只配宏兴」的身份打关键接口，断言看不到顺安的数据；
+2. **接口级测试**：以「普通用户 + 只配甲公司」的身份打关键接口，断言看不到乙公司的数据；
    用管理员身份断言仍能看到全部（回归保护）。
 3. **人工核对清单**：按 §4 的接口清单逐个用 `curl` 或界面点一遍（受限账号 + 管理员各一次）。
 
@@ -177,7 +183,7 @@ Git 分支**不是复制一份文件夹**，而是在**同一个工作目录**�
 
 | 项 | 说明 |
 |---|---|
-| **设备数据前置（一期必修）** | `equipment.department` 目前为空（唯一 1 台）。直接上隔离会导致它对所有人不可见 → **开工前先给这台设备补上公司** |
+| **设备数据前置（一期必修）** | `equipment.department` 可能存在为空的历史记录。直接上隔离会导致它对所有人不可见 → **上隔离前先给这类设备补上公司** |
 | **公司改名** | 按**名称**关联：在「公司信息管理」里改名后，`personnel.department` 与 `user_companies.company_name` 都会失配。**这是既有问题**（现有筛选已如此），本次不解决；彻底解决需要改成按 ID 关联（更大的重构） |
 | **资料库** | `documents` 只有"公司档案"类有 `company_name`，法规标准/IP 信息是全局共享。一期**暂不对资料库做隔离**，留到二期 |
 | 仪表盘 / 提醒 | 一期不动（统计与邮件范围后续再定） |
@@ -190,3 +196,12 @@ Git 分支**不是复制一份文件夹**，而是在**同一个工作目录**�
 | 2 | 一期**包含设备**（需先补那台设备的公司，见 §8）✅ |
 | 3 | 一个账号可绑定**多个**公司，由管理员在权限里添加 ✅ |
 | 4 | 资料库一期**不做**，二期再定 ✅ |
+| 5 | 「所属检测站」采用**方案 C**：改为下拉选择，**不能手打新名字**；选项 = 已登记公司 ∪ 已出现过的名称（标注「未登记」）。现有数据不受影响；新增公司需先在公司信息管理登记 ✅ |
+| 6 | 公司下拉/权限下拉的数据源统一为 **companies ∪ 实际出现过的 department**（兜底历史数据） ✅ |
+
+### 开工前的数据准备（2026-09-21 已完成 / 待办）
+
+- ✅ **已把缺失的公司补登记进「公司信息管理」**。补登前该公司只存在于人员数据的
+  `department` 里，公司档案中没有，导致权限下拉选不到它。
+- ⏳ **待办**：设备 `id=4`（名称 "1"）的 `department` 为空 → 需补检测站，或确认该记录是否可删。
+  **上设备隔离之前必须处理**，否则该设备会对所有人（含管理员之外的受限账号）不可见。

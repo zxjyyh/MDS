@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/zxjyyh/mds/internal/config"
+	"github.com/zxjyyh/mds/internal/scope"
 	"github.com/zxjyyh/mds/internal/service"
 	"github.com/zxjyyh/mds/internal/utils"
 
@@ -20,6 +21,7 @@ type Handler struct {
 
 	AuthSvc         *service.AuthService
 	UserSvc         *service.UserService
+	UserCompanySvc  *service.UserCompanyService
 	PersonnelSvc    *service.PersonnelService
 	EquipmentSvc    *service.EquipmentService
 	CompanySvc      *service.CompanyService
@@ -32,6 +34,8 @@ type Handler struct {
 }
 
 func NewHandler(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *Handler {
+	// 权限服务需要公司服务来校验公司名是否合法，故先建出来共用
+	companySvc := &service.CompanyService{DB: db}
 	return &Handler{
 		DB:     db,
 		Config: cfg,
@@ -39,9 +43,10 @@ func NewHandler(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *Handler {
 
 		AuthSvc:         &service.AuthService{DB: db},
 		UserSvc:         &service.UserService{DB: db},
+		UserCompanySvc:  &service.UserCompanyService{DB: db, CompanySvc: companySvc},
 		PersonnelSvc:    &service.PersonnelService{DB: db},
 		EquipmentSvc:    &service.EquipmentService{DB: db},
-		CompanySvc:      &service.CompanyService{DB: db},
+		CompanySvc:      companySvc,
 		CategorySvc:     &service.CategoryService{DB: db},
 		OperationLogSvc: &service.OperationLogService{DB: db},
 		BackupSvc:       &service.BackupService{DB: db, Cfg: cfg},
@@ -49,6 +54,19 @@ func NewHandler(db *sqlx.DB, cfg *config.Config, log *zap.Logger) *Handler {
 		FileSvc:         &service.FileService{DB: db, UploadDir: cfg.UploadDir, MaxSize: cfg.UploadMax},
 		ReminderSvc:     &service.ReminderService{DB: db},
 	}
+}
+
+// currentScope 取出 Auth 中间件注入的数据可见范围。
+//
+// 中间件一定会注入；这里兜底返回「不受限」只在中间件未挂载时才会走到
+// （例如某个忘了加 Auth 的测试路由），不影响正常链路。
+func currentScope(c *gin.Context) *scope.Scope {
+	if v, ok := c.Get("dataScope"); ok {
+		if sc, ok := v.(*scope.Scope); ok && sc != nil {
+			return sc
+		}
+	}
+	return scope.All()
 }
 
 // ---- Auth Handlers ----

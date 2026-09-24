@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zxjyyh/mds/internal/docgen"
+	"github.com/zxjyyh/mds/internal/scope"
 	"github.com/zxjyyh/mds/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -59,12 +60,12 @@ func strPtrVal(s *string) string {
 //
 // 抽出来是为了让「理工报名材料」批量生成能复用**完全同一套**逻辑：
 // 两条路径产出的劳动合同必须一字不差，不能各写一份模板替换代码。
-func (h *Handler) buildContractDocx(req contractGenRequest) ([]byte, string, error) {
+func (h *Handler) buildContractDocx(sc *scope.Scope, req contractGenRequest) ([]byte, string, error) {
 	if req.PersonnelID <= 0 {
 		return nil, "", fmt.Errorf("请先选择人员")
 	}
 
-	p, err := h.PersonnelSvc.GetByID(req.PersonnelID)
+	p, err := h.PersonnelSvc.GetByID(sc, req.PersonnelID)
 	if err != nil || p == nil {
 		return nil, "", fmt.Errorf("人员不存在")
 	}
@@ -144,7 +145,7 @@ func (h *Handler) GenerateContract(c *gin.Context) {
 		return
 	}
 
-	data, fileName, err := h.buildContractDocx(req)
+	data, fileName, err := h.buildContractDocx(currentScope(c), req)
 	if err != nil {
 		utils.FailStatus(c, 400, -1, err.Error())
 		return

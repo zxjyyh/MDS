@@ -10,10 +10,13 @@
     <div class="col-tip">
       <el-icon style="margin-right: 6px; vertical-align: -2px"><InfoFilled /></el-icon>
       勾选需要在列表中展示的字段（序号与操作列始终显示）。设置按当前账号保存，下次进入自动沿用。
+      标了「默认隐藏」的字段默认不出现在列表里，勾选后才会显示。
     </div>
 
     <el-checkbox-group v-model="checked" class="col-grid">
-      <el-checkbox v-for="c in columns" :key="c.prop" :value="c.prop">{{ c.label }}</el-checkbox>
+      <el-checkbox v-for="c in columns" :key="c.prop" :value="c.prop">
+        {{ c.label }}<span v-if="c.defaultHidden" class="col-default-hide">默认隐藏</span>
+      </el-checkbox>
     </el-checkbox-group>
 
     <div class="col-count">已选 {{ checked.length }} / {{ columns.length }} 项</div>
@@ -70,6 +73,19 @@ onUnmounted(() => window.removeEventListener('resize', syncIsMobile));
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 6px 12px;
+  align-items: start;
+}
+/* 标了 defaultHidden 的字段给个小角标：这些列默认不出现，很容易找不到 */
+.col-default-hide {
+  margin-left: 4px;
+  padding: 0 3px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 3px;
+  white-space: nowrap;
 }
 .col-count {
   margin-top: 12px;

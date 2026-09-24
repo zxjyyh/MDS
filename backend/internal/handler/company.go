@@ -76,3 +76,20 @@ func (h *Handler) CompanyOptions(c *gin.Context) {
 	}
 	utils.Success(c, list)
 }
+
+// CompanyNames 合法的公司名列表（**公司档案 ∪ 人员/设备里实际出现过的检测站**，去重）。
+//
+// 用于两处：
+//  1. 用户管理里配置「公司权限」的多选；
+//  2. 人员 / 设备表单的「所属检测站」下拉（方案 C：不允许手打新名字，从源头杜绝笔误）。
+//
+// 之所以用并集而不是只取公司档案：历史数据里可能存在未登记的公司名，
+// 只取档案会让这些数据无法被选中、也无法被授权。
+func (h *Handler) CompanyNames(c *gin.Context) {
+	names, err := h.CompanySvc.NameOptions()
+	if err != nil {
+		utils.Fail(c, -1, "查询失败")
+		return
+	}
+	utils.Success(c, gin.H{"names": names})
+}

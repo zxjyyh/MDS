@@ -119,8 +119,10 @@
           <el-form-item label="文件名" prop="fileName">
             <el-input v-model="docForm.fileName" placeholder="上传文件后自动填入，可修改" />
           </el-form-item>
-          <el-form-item label="公司名称">
-            <el-input v-model="docForm.companyName" />
+          <el-form-item label="公司名称" prop="companyName">
+            <el-select v-model="docForm.companyName" filterable placeholder="选择公司" style="width: 100%">
+              <el-option v-for="n in companyOptions" :key="n" :label="n" :value="n" />
+            </el-select>
           </el-form-item>
           <el-form-item label="证书日期">
             <el-date-picker v-model="docForm.issueDate" type="date" value-format="YYYY-MM-DD" placeholder="手动填写证书日期" style="width: 100%" />
@@ -144,6 +146,12 @@
         <template v-else>
           <el-form-item label="标题" prop="title">
             <el-input v-model="docForm.title" />
+          </el-form-item>
+          <!-- 法规标准是全局共享资料，不需要所属公司；其余类型都必须选 -->
+          <el-form-item v-if="!isGlobalDoc" label="所属公司" prop="companyName">
+            <el-select v-model="docForm.companyName" filterable placeholder="选择所属公司" style="width: 100%">
+              <el-option v-for="n in companyOptions" :key="n" :label="n" :value="n" />
+            </el-select>
           </el-form-item>
           <el-row :gutter="16">
             <el-col :span="12"><el-form-item label="文档编号"><el-input v-model="docForm.docNumber" /></el-form-item></el-col>
@@ -196,6 +204,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { categoryApi, documentApi } from '../api/document';
+import { companyApi } from '../api/company';
 import { fileApi } from '../api/file';
 import { useAuthStore } from '../stores/auth';
 import CategoryTree from './CategoryTree.vue';
@@ -220,6 +229,24 @@ const catTreeRef = ref();
 
 // 是否公司档案模块
 const isArchive = computed(() => props.systemType === 'company_archive');
+
+// 全局共享的文档类型（不受公司隔离）：只有法规标准。
+// 其余类型（公司档案 / IP 信息 / 资质体系 / 安全生产）都必须选「所属公司」，
+// 后端按 documents.company_name 做隔离 —— 不填的话新文档对受限账号不可见。
+const isGlobalDoc = computed(() => props.systemType === 'legal_standard');
+
+// 「所属公司」候选：公司档案 ∪ 人员/设备里出现过的检测站（与人员/设备表单同源）。
+// 按方案 C 不允许手打新名字，避免笔误导致权限匹配失败。
+const companyOptions = ref<string[]>([]);
+async function loadCompanyOptions() {
+  if (companyOptions.value.length) return;
+  try {
+    const res: any = await companyApi.names();
+    companyOptions.value = res.data?.names || [];
+  } catch {
+    /* 加载失败不阻断；仍可保存（但会因公司为空被后端拒绝） */
+  }
+}
 // 当前选中分类名（决定表格列）
 const selectedCategoryName = ref('');
 const isLicense = computed(() => selectedCategoryName.value === '营业执照');
@@ -246,6 +273,8 @@ const docForm = reactive<any>({ categoryId: null, title: '', fileName: '', compa
 const docRules = computed<FormRules>(() => ({
   categoryId: [{ required: true, message: '请选择分类' }],
   title: isArchive.value ? [] : [{ required: true, message: '请输入标题' }],
+  // 除法规标准（全局共享）外，文档必须归属一个公司 —— 否则受限账号看不到它（见 docs/company-data-scope.md）
+  companyName: isGlobalDoc.value ? [] : [{ required: true, message: '请选择所属公司', trigger: 'change' }],
   fileId: [{ required: true, validator: (_r, v, cb) => (v ? cb() : cb(new Error('请上传文件'))) }],
 }));
 
@@ -340,6 +369,7 @@ function editDoc(row: any) {
     description: row.description || '',
   });
   docDialog.value = true;
+  loadCompanyOptions();
 }
 
 function resetDocForm() {
@@ -349,6 +379,7 @@ function resetDocForm() {
 
 function openCreate() {
   resetDocForm();
+  loadCompanyOptions(); // 公司下拉候选（按需只加载一次）
   docDialog.value = true;
 }
 

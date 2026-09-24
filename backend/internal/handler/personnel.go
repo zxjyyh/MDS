@@ -18,7 +18,7 @@ import (
 func (h *Handler) ListPersonnel(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "pageSize", 10)
-	list, total, err := h.PersonnelSvc.List(c.Query("keyword"), c.Query("department"), c.Query("status"), page, pageSize)
+	list, total, err := h.PersonnelSvc.List(currentScope(c), c.Query("keyword"), c.Query("department"), c.Query("status"), page, pageSize)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
@@ -28,7 +28,7 @@ func (h *Handler) ListPersonnel(c *gin.Context) {
 
 // PersonnelOptions 返回用于筛选下拉框的检测站去重列表。
 func (h *Handler) PersonnelOptions(c *gin.Context) {
-	departments, err := h.PersonnelSvc.Options()
+	departments, err := h.PersonnelSvc.Options(currentScope(c))
 	if err != nil {
 		utils.Fail(c, -1, "查询失败")
 		return
@@ -38,7 +38,7 @@ func (h *Handler) PersonnelOptions(c *gin.Context) {
 
 func (h *Handler) GetPersonnel(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	p, err := h.PersonnelSvc.GetByID(id)
+	p, err := h.PersonnelSvc.GetByID(currentScope(c), id)
 	if err != nil {
 		utils.Fail(c, -1, "人员不存在")
 		return
@@ -52,7 +52,7 @@ func (h *Handler) CreatePersonnel(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	p, err := h.PersonnelSvc.Create(body, utils.GetAuthUserID(c))
+	p, err := h.PersonnelSvc.Create(currentScope(c), body, utils.GetAuthUserID(c))
 	if err != nil {
 		utils.Fail(c, -1, "创建失败："+err.Error())
 		return
@@ -67,7 +67,7 @@ func (h *Handler) UpdatePersonnel(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.PersonnelSvc.Update(id, body); err != nil {
+	if err := h.PersonnelSvc.Update(currentScope(c), id, body); err != nil {
 		utils.Fail(c, -1, "更新失败")
 		return
 	}
@@ -76,7 +76,7 @@ func (h *Handler) UpdatePersonnel(c *gin.Context) {
 
 func (h *Handler) DeletePersonnel(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.PersonnelSvc.Delete(id); err != nil {
+	if err := h.PersonnelSvc.Delete(currentScope(c), id); err != nil {
 		utils.Fail(c, -1, "删除失败")
 		return
 	}
@@ -90,7 +90,7 @@ func (h *Handler) AddPersonnelCert(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	cert, err := h.PersonnelSvc.AddCert(id, body)
+	cert, err := h.PersonnelSvc.AddCert(currentScope(c), id, body)
 	if err != nil {
 		utils.Fail(c, -1, "添加失败："+err.Error())
 		return
@@ -105,7 +105,7 @@ func (h *Handler) UpdatePersonnelCert(c *gin.Context) {
 		utils.Fail(c, -1, "参数错误")
 		return
 	}
-	if err := h.PersonnelSvc.UpdateCert(certID, body); err != nil {
+	if err := h.PersonnelSvc.UpdateCert(currentScope(c), certID, body); err != nil {
 		utils.Fail(c, -1, "更新失败")
 		return
 	}
@@ -114,7 +114,7 @@ func (h *Handler) UpdatePersonnelCert(c *gin.Context) {
 
 func (h *Handler) DeletePersonnelCert(c *gin.Context) {
 	certID, _ := strconv.Atoi(c.Param("certId"))
-	if err := h.PersonnelSvc.DeleteCert(certID); err != nil {
+	if err := h.PersonnelSvc.DeleteCert(currentScope(c), certID); err != nil {
 		utils.Fail(c, -1, "删除失败："+err.Error())
 		return
 	}
@@ -125,7 +125,7 @@ func (h *Handler) DeletePersonnelCert(c *gin.Context) {
 // 证书行本身保留，回到"待上传"状态。
 func (h *Handler) ClearPersonnelCert(c *gin.Context) {
 	certID, _ := strconv.Atoi(c.Param("certId"))
-	if err := h.PersonnelSvc.ClearReservedCert(certID); err != nil {
+	if err := h.PersonnelSvc.ClearReservedCert(currentScope(c), certID); err != nil {
 		utils.Fail(c, -1, "清空失败："+err.Error())
 		return
 	}
@@ -147,22 +147,22 @@ func (h *Handler) ExportPersonnelCerts(c *gin.Context) {
 		return
 	}
 
-	scope, err := h.PersonnelSvc.PersonnelByScope(department, status)
+	people, err := h.PersonnelSvc.PersonnelByScope(currentScope(c), department, status)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败："+err.Error())
 		return
 	}
-	files, err := h.PersonnelSvc.CertFilesByScope(department, status, certName)
+	files, err := h.PersonnelSvc.CertFilesByScope(currentScope(c), department, status, certName)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败："+err.Error())
 		return
 	}
-	if len(scope) == 0 {
+	if len(people) == 0 {
 		utils.Fail(c, -1, "所选范围内没有符合条件的人员")
 		return
 	}
 	if len(files) == 0 {
-		utils.Fail(c, -1, fmt.Sprintf("所选范围 %d 人均未上传「%s」，没有可打包的文件", len(scope), certName))
+		utils.Fail(c, -1, fmt.Sprintf("所选范围 %d 人均未上传「%s」，没有可打包的文件", len(people), certName))
 		return
 	}
 
@@ -171,8 +171,8 @@ func (h *Handler) ExportPersonnelCerts(c *gin.Context) {
 	for _, f := range files {
 		have[f.PersonnelID] = true
 	}
-	missingNames := make([]string, 0, len(scope))
-	for _, p := range scope {
+	missingNames := make([]string, 0, len(people))
+	for _, p := range people {
 		if have[p.ID] {
 			continue
 		}
@@ -208,7 +208,7 @@ func (h *Handler) ExportPersonnelCerts(c *gin.Context) {
 		scopeStatus = "全部状态"
 	}
 	readme := fmt.Sprintf("证书批量下载说明\n下载时间：%s\n证书类型：%s\n下载范围：%s · %s\n人员总数：%d 人\n打包文件：%d 份\n缺证人数：%d 人\n",
-		now.Format("2006-01-02 15:04:05"), certName, scopeDept, scopeStatus, len(scope), len(files), len(missingNames))
+		now.Format("2006-01-02 15:04:05"), certName, scopeDept, scopeStatus, len(people), len(files), len(missingNames))
 	if len(missingNames) > 0 {
 		readme += "\n说明：缺证人员详见压缩包内「01_缺证人员名单.txt」。\n"
 	}
@@ -300,7 +300,7 @@ func (h *Handler) PersonnelCertGap(c *gin.Context) {
 	if raw := strings.TrimSpace(c.Query("certs")); raw != "" {
 		certs = strings.Split(raw, ",")
 	}
-	names, list, summary, err := h.PersonnelSvc.CertGap(c.Query("department"), c.Query("status"), certs)
+	names, list, summary, err := h.PersonnelSvc.CertGap(currentScope(c), c.Query("department"), c.Query("status"), certs)
 	if err != nil {
 		utils.Fail(c, -1, "查询失败："+err.Error())
 		return

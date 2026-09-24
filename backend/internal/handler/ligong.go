@@ -130,7 +130,7 @@ func (h *Handler) LigongPrecheck(c *gin.Context) {
 		if len(ligong.MaterialsFor(applyKey)) == 0 {
 			continue // 增项：不需要劳动合同
 		}
-		p, err := h.PersonnelSvc.GetByID(e.PersonnelID)
+		p, err := h.PersonnelSvc.GetByID(currentScope(c), e.PersonnelID)
 		if err != nil || p == nil {
 			continue
 		}
@@ -260,7 +260,7 @@ func (h *Handler) GenerateLigongEnroll(c *gin.Context) {
 			return
 		}
 
-		p, err := h.PersonnelSvc.GetByID(pr.PersonnelID)
+		p, err := h.PersonnelSvc.GetByID(currentScope(c), pr.PersonnelID)
 		if err != nil || p == nil {
 			utils.FailStatus(c, 400, -1, fmt.Sprintf("第 %d 名人员不存在，请刷新后重试", i+1))
 			return
@@ -398,7 +398,7 @@ func (h *Handler) GenerateLigongEnroll(c *gin.Context) {
 			return
 		}
 		renderer = func(p ligong.Person) ([]byte, string, error) {
-			return h.buildContractDocx(contractGenRequest{
+			return h.buildContractDocx(currentScope(c), contractGenRequest{
 				PersonnelID:    p.ID,
 				SignDate:       signDate,
 				StationName:    company,
